@@ -89,4 +89,4 @@ async def process_role(message: types.Message, state: FSMContext):
     cursor = conn.cursor()
     
     # Проверяем существует ли пользователь
-    cursor.execute("SELECT user_id FROM users WHERE user_id = ?",
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
