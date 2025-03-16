@@ -90,8 +90,7 @@ def init_db():
     admin_count = cursor.fetchone()[0]
     
     if admin_count == 0:
-        # Добавляем первого администратора (ID указать свой)
-        admin_id = 123456789  # Замените на свой ID в Telegram
+        admin_id = 403126106  
         cursor.execute(
             "INSERT OR IGNORE INTO users (user_id, username, role) VALUES (?, 'admin', 0)",
             (admin_id,)
