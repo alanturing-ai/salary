@@ -37,7 +37,7 @@ def get_admin_keyboard():
     keyboard.add(types.KeyboardButton("➕ Добавить рейс"))
     keyboard.add(types.KeyboardButton("🗂️ История рейсов"))
     keyboard.add(types.KeyboardButton("🚛 Управление"))
-    keyboard.add(types.KeyboardButton("👥 Управление пользователями"))  
+    keyboard.add(types.KeyboardButton("👥 Управление пользователями"))
     return keyboard
 
 # Проверка роли пользователя
@@ -68,15 +68,21 @@ async def cmd_start(message: types.Message):
         await message.answer("О нет, кажется вы вотермелон, сбросьте 50 кг, чтобы пользоваться ботом!")
     else:
         # Существующий пользователь
-        if user[0] == 0:  # Администратор
-        await message.answer("Привет! Вы вошли как администратор.", 
-                       reply_markup=get_admin_keyboard())
-    elif user[0] == 1:  # Редактор
-        await message.answer("Привет! Вы вошли как редактор.", 
-                       reply_markup=get_editor_keyboard())
-    else:  # Просмотрщик
-        await message.answer("Привет! Вы вошли как просмотрщик.", 
-                       reply_markup=get_viewer_keyboard())
+if user[0] == 0:  # Администратор
+            await message.answer(
+                "Привет! Вы вошли как администратор.",
+                reply_markup=get_admin_keyboard()
+            )
+        elif user[0] == 1:  # Редактор
+            await message.answer(
+                "Привет! Вы вошли как редактор.",
+                reply_markup=get_editor_keyboard()
+            )
+        else:  # Просмотрщик
+            await message.answer(
+                "Привет! Вы вошли как просмотрщик.",
+                reply_markup=get_viewer_keyboard()
+            )
     
     conn.close()
 
