@@ -233,9 +233,9 @@ async def list_drivers_command(message: types.Message):
             "-----------------------"
         )
     await message.answer("\n".join(text_lines))
-
+    
+init_db()
 if __name__ == '__main__':
-    init_db()
     executor.start_polling(dp, skip_updates=True)
 import sqlite3
 
