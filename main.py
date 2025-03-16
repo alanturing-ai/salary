@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 from aiogram import Bot, Dispatcher, executor, types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 TOKEN = "7909538433:AAG8ot_W96YoUX_OXTy9QDOzV21Lg-1iqzI" 
 
@@ -86,7 +87,33 @@ def init_db():
 # 2) ОБРАБОТЧИК /start
 @dp.message_handler(commands=['start'])
 async def start_command(message: types.Message):
-    await message.answer("Привет! Я бот для расчёта зарплаты водителям.")
+    # Создаём inline-клавиатуру
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    # Добавляем кнопки с callback_data
+    keyboard.add(
+        InlineKeyboardButton("Добавить водителя", callback_data="adddriver"),
+        InlineKeyboardButton("Список водителей", callback_data="drivers")
+    )
+    keyboard.add(
+        InlineKeyboardButton("Добавить пользователя", callback_data="adduser"),
+        InlineKeyboardButton("Удалить пользователя", callback_data="deluser")
+    )
+    await message.answer("Выберите действие:", reply_markup=keyboard)
+
+@dp.callback_query_handler(lambda call: True)
+async def inline_buttons_handler(call: CallbackQuery):
+    if call.data == "adddriver":
+        # Логика добавления водителя
+        await call.message.answer("Введите данные для /adddriver ...")
+    elif call.data == "drivers":
+        # Логика списка водителей
+        await call.message.answer("Выполняем /drivers ...")
+    elif call.data == "adduser":
+        await call.message.answer("Введите данные для /adduser ...")
+    elif call.data == "deluser":
+        await call.message.answer("Введите данные для /deluser ...")
+
+    await call.answer()  # закрывает «часики» Telegram
 
 # 3) ФУНКЦИЯ ПОЛУЧЕНИЯ РОЛИ ПОЛЬЗОВАТЕЛЯ
 def get_user_role(telegram_id):
