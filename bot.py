@@ -60,11 +60,25 @@ async def cmd_start(message: types.Message):
         await message.answer("О нет, кажется вы вотермелон, сбросьте 50 кг, чтобы пользоваться ботом!")
     else:
         # Существующий пользователь
-        if user[0] == 1:
+        if user[0] <= 1:  # Администратор (0) или редактор (1)
             await message.answer("Привет! Вы вошли как редактор.", 
                                reply_markup=get_editor_keyboard())
         else:
             await message.answer("Привет! Вы вошли как просмотрщик.", 
                                reply_markup=get_viewer_keyboard())
     
+    conn.close()
+
+@dp.message_handler(commands=['myid'])
+async def cmd_myid(message: types.Message):
+    await message.answer(f"Ваш ID: {message.from_user.id}")
+
+@dp.message_handler(commands=['makeadmin'])
+async def cmd_makeadmin(message: types.Message):
+    user_id = message.from_user.id
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET role = 0 WHERE user_id = ?", (user_id,))
+    conn.commit()
+    await message.answer("Ваша роль обновлена до администратора!")
     conn.close()
