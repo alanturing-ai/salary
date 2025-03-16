@@ -14,7 +14,7 @@ dp = Dispatcher(bot)
 def init_db():
     conn = sqlite3.connect('salary.db')
     c = conn.cursor()
-    # Таблица пользователей
+    # Создаем таблицы, если их еще нет
     c.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,11 +82,20 @@ def init_db():
     )
     ''')
     conn.commit()
+    # Если таблица пользователей пуста, добавить администратора с заранее известным Telegram ID
+    c.execute("SELECT COUNT(*) FROM users")
+    count = c.fetchone()[0]
+    if count == 0:
+        # Замените 123456789 на ваш Telegram ID
+        c.execute("INSERT INTO users (telegram_id, role) VALUES (?, ?)", (123456789, 'admin'))
+        conn.commit()
     conn.close()
 
 # 2) ОБРАБОТЧИК /start
 @dp.message_handler(commands=['start'])
+@authorized_only
 async def start_command(message: types.Message):
+    await message.answer("Привет! Я бот для расчёта зарплаты водителям.")
     # Создаём inline-клавиатуру
     keyboard = InlineKeyboardMarkup(row_width=2)
     # Добавляем кнопки с callback_data
@@ -124,14 +133,26 @@ def get_user_role(telegram_id):
     conn.close()
     return result[0] if result else None
 
+# Декоратор для проверки, есть ли пользователь в базе
+def authorized_only(func):
+    async def wrapper(message: types.Message):
+        role = get_user_role(message.from_user.id)
+        if role is None:
+            await message.answer("О нет, кажется вы вотермелон, сбросьте 50 кг, чтобы пользоваться ботом")
+            return
+        return await func(message)
+    return wrapper
+
 # 4) /adduser, /deluser — управление пользователями
 @dp.message_handler(commands=['adduser'])
+@authorized_only
 async def add_user_command(message: types.Message):
     sender_role = get_user_role(message.from_user.id)
     if sender_role != 'admin':
         await message.answer("У вас нет прав для выполнения этой команды.")
         return
 
+    # Ожидается формат: /adduser <telegram_id> <role>
     args = message.text.split()
     if len(args) != 3:
         await message.answer("Используйте: /adduser <telegram_id> <role>")
