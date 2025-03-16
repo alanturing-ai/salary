@@ -13,7 +13,7 @@ from database import init_db
 logging.basicConfig(level=logging.INFO)
 
 # Инициализация бота
-BOT_TOKEN = "YOUR_TOKEN_HERE"  # Замените на свой токен
+BOT_TOKEN = "7909538433:AAG8ot_W96YoUX_OXTy9QDOzV21Lg-1iqzI"  
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
