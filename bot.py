@@ -43,4 +43,28 @@ async def check_user_access(cursor, user_id, required_role=2):
     return result[0] <= required_role
 
 # Обработчик команды /start
-@dp.message_handler(comm
+@dp.message_handler(commands=['start'])
+async def cmd_start(message: types.Message):
+    conn = init_db()
+    cursor = conn.cursor()
+    
+    user_id = message.from_user.id
+    username = message.from_user.username
+    
+    # Проверяем наличие пользователя
+    cursor.execute("SELECT role FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    
+    if not user:
+        # Новый пользователь - не регистрируем, отправляем шуточное сообщение
+        await message.answer("О нет, кажется вы вотермелон, сбросьте 50 кг, чтобы пользоваться ботом!")
+    else:
+        # Существующий пользователь
+        if user[0] == 1:
+            await message.answer("Привет! Вы вошли как редактор.", 
+                               reply_markup=get_editor_keyboard())
+        else:
+            await message.answer("Привет! Вы вошли как просмотрщик.", 
+                               reply_markup=get_viewer_keyboard())
+    
+    conn.close()
