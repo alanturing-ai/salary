@@ -93,7 +93,6 @@ def init_db():
 
 # 2) ОБРАБОТЧИК /start
 @dp.message_handler(commands=['start'])
-@authorized_only
 async def start_command(message: types.Message):
     await message.answer("Привет! Я бот для расчёта зарплаты водителям.")
     # Создаём inline-клавиатуру
@@ -145,7 +144,6 @@ def authorized_only(func):
 
 # 4) /adduser, /deluser — управление пользователями
 @dp.message_handler(commands=['adduser'])
-@authorized_only
 async def add_user_command(message: types.Message):
     sender_role = get_user_role(message.from_user.id)
     if sender_role != 'admin':
