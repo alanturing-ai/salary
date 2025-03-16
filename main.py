@@ -299,6 +299,19 @@ async def list_drivers_command(message: types.Message):
         )
     await message.answer("\n".join(text_lines))
 
+async def on_startup(dp):
+    commands = [
+        types.BotCommand(command="start", description="Запуск бота"),
+        types.BotCommand(command="adduser", description="Добавить пользователя"),
+        types.BotCommand(command="deluser", description="Удалить пользователя"),
+        types.BotCommand(command="adddriver", description="Добавить водителя"),
+        types.BotCommand(command="editdriver", description="Редактировать водителя"),
+        types.BotCommand(command="deletedriver", description="Удалить водителя"),
+        types.BotCommand(command="drivers", description="Список водителей")
+    ]
+    await bot.set_my_commands(commands)
+
+
 # 7) СТАРТ ПРИ ЗАПУСКЕ
 if __name__ == '__main__':
     init_db()  # создаём таблицы
