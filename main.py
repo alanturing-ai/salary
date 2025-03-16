@@ -2,7 +2,7 @@ import logging
 import sqlite3
 from aiogram import Bot, Dispatcher, executor, types
 
-TOKEN = "ВСТАВЬ_СЮДА_СВОЙ_ТОКЕН"  # <-- Не забудь заключить в кавычки!
+TOKEN = "7909538433:AAG8ot_W96YoUX_OXTy9QDOzV21Lg-1iqzI" 
 
 logging.basicConfig(level=logging.INFO)
 
