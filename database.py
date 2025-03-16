@@ -84,5 +84,19 @@ def init_db():
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
     create_tables(cursor)
+    
+    # Проверяем наличие администратора
+    cursor.execute("SELECT COUNT(*) FROM users WHERE role = 0")
+    admin_count = cursor.fetchone()[0]
+    
+    if admin_count == 0:
+        # Добавляем первого администратора (ID указать свой)
+        admin_id = 123456789  # Замените на свой ID в Telegram
+        cursor.execute(
+            "INSERT OR IGNORE INTO users (user_id, username, role) VALUES (?, 'admin', 0)",
+            (admin_id,)
+        )
+        print(f"Добавлен первый администратор с ID: {admin_id}")
+    
     conn.commit()
     return conn
