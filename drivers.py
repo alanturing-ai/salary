@@ -274,6 +274,8 @@ async def list_drivers(message: types.Message):
     for driver_id, name, km_rate in drivers:
         text += f"ID: {driver_id} | 👤 {name} | 💰 {km_rate} руб/км\n"
     
+    text += "\nНажмите на имя водителя ниже, чтобы просмотреть детали:"
+    
     # Создаем инлайн-клавиатуру для выбора водителя
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     for driver_id, name, _ in drivers:
@@ -281,11 +283,19 @@ async def list_drivers(message: types.Message):
             f"👤 {name}", callback_data=f"driver_info_{driver_id}"
         ))
     
+    # Отправляем одно сообщение с инлайн-клавиатурой и показываем обычную клавиатуру
     await message.answer(text, reply_markup=keyboard)
-    await message.answer("Выберите водителя для просмотра деталей или нажмите кнопку ниже:", 
-                       reply_markup=get_drivers_keyboard())
+    
+    # Показываем обычную клавиатуру отдельным вызовом, без отправки второго сообщения
+    await message.answer_chat_action("typing")
+    await message.bot.send_message(
+        message.from_user.id,
+        "⌨️ Меню водителей",
+        reply_markup=get_drivers_keyboard()
+    )
+    
     conn.close()
-
+    
 # Обработчик для просмотра информации о водителе
 @dp.callback_query_handler(lambda c: c.data.startswith('driver_info_'))
 async def show_driver_info(callback_query: types.CallbackQuery):
