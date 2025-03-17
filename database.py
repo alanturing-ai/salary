@@ -21,8 +21,10 @@ def create_tables(cursor):
         roof_loading_rate REAL NOT NULL,  -- Ставка за погрузку/разгрузку крыши
         regular_downtime_rate REAL NOT NULL,  -- Ставка за обычный простой
         forced_downtime_rate REAL NOT NULL,  -- Ставка за вынужденный простой
+        vehicle_id INTEGER,  -- Привязка к автопоезду
         notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vehicle_id) REFERENCES vehicles (id)
     )
     ''')
     
