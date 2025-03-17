@@ -216,25 +216,80 @@ async def process_notes(message: types.Message, state: FSMContext):
     await message.answer(confirmation_text)
     await DriverStates.waiting_for_confirmation.set()
 
-# Обновленный обработчик списка водителей с интерактивными кнопками
-@dp.message_handler(lambda message: message.text == "📋 Список водителей")
-async def list_drivers(message: types.Message):
+# Обработчик для просмотра информации о водителе
+@dp.callback_query_handler(lambda c: c.data.startswith('driver_info_'))
+async def show_driver_info(callback_query: types.CallbackQuery):
+    await bot.answer_callback_query(callback_query.id)
+    
+    driver_id = int(callback_query.data.split('_')[2])
+    
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
     
-    if not await check_user_access(cursor, message.from_user.id, required_role=1):
-        await message.answer("У вас нет доступа к этой функции.")
+    # Получаем данные водителя
+    cursor.execute("""
+        SELECT d.name, d.km_rate, d.side_loading_rate, d.roof_loading_rate,
+               d.regular_downtime_rate, d.forced_downtime_rate, d.notes,
+               v.truck_number, v.trailer_number
+        FROM drivers d
+        LEFT JOIN vehicles v ON d.vehicle_id = v.id
+        WHERE d.id = ?
+    """, (driver_id,))
+    
+    driver_data = cursor.fetchone()
+    
+    if not driver_data:
+        await bot.send_message(callback_query.from_user.id, "Водитель не найден!")
         conn.close()
         return
     
-    cursor.execute("SELECT id, name, km_rate FROM drivers ORDER BY name")
-    drivers = cursor.fetchall()
+    name, km_rate, side_rate, roof_rate, reg_rate, forced_rate, notes, truck, trailer = driver_data
     
-    if not drivers:
-        await message.answer("Список водителей пуст. Добавьте водителей с помощью кнопки '👤 Добавить водителя'.", 
-                           reply_markup=get_drivers_keyboard())
-        conn.close()
-        return
+    # Формируем сообщение
+    text = (
+        f"📌 Информация о водителе\n"
+        f"👤 Имя: {name}\n"
+        f"💰 Ставка за км: {km_rate} руб\n"
+        f"🚚 Боковой тент: {side_rate} руб\n"
+        f"🚚 Крыша: {roof_rate} руб\n"
+        f"⏱️ Обычный простой: {reg_rate} руб/час\n"
+        f"⏱️ Вынужденный простой: {forced_rate} руб/час\n"
+    )
+    
+    if truck and trailer:
+        text += f"🚛 Автопоезд: {truck}/{trailer}\n"
+    else:
+        text += "🚛 Автопоезд: не назначен\n"
+    
+    if notes:
+        text += f"📝 Примечания: {notes}\n"
+    
+    # Создаем клавиатуру для редактирования
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        types.InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_driver_{driver_id}"),
+        types.InlineKeyboardButton("🚛 Назначить автопоезд", callback_data=f"assign_vehicle_{driver_id}")
+    )
+    keyboard.add(types.InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_driver_{driver_id}"))
+    keyboard.add(types.InlineKeyboardButton("◀️ Назад к списку", callback_data="back_to_drivers_list"))
+    
+    # Отправляем ответ
+    await bot.send_message(
+        callback_query.from_user.id, 
+        text, 
+        reply_markup=keyboard
+    )
+    
+    conn.close()
+
+# Добавьте также обработчик для кнопки "Назад к списку"
+@dp.callback_query_handler(lambda c: c.data == "back_to_drivers_list")
+async def back_to_drivers_list(callback_query: types.CallbackQuery):
+    await bot.answer_callback_query(callback_query.id)
+    
+    # Вызываем функцию для отображения списка водителей
+    message = types.Message.to_object({"text": "📋 Список водителей", "from": {"id": callback_query.from_user.id}})
+    await list_drivers(message)
     
     # Формируем список водителей с инлайн-кнопками
     text = "📋 Список водителей:\n\n"
