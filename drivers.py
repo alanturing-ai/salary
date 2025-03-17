@@ -200,6 +200,46 @@ async def process_confirmation(message: types.Message, state: FSMContext):
         await message.answer("Отменено. Данные не сохранены.", reply_markup=get_drivers_keyboard())
         await state.finish()
         return
+    
+    # Получаем все введенные данные
+    data = await state.get_data()
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    # Сохраняем в базу
+    cursor.execute(
+        """
+        INSERT INTO drivers 
+        (name, km_rate, side_loading_rate, roof_loading_rate, 
+        regular_downtime_rate, forced_downtime_rate, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get('name'),
+            data.get('km_rate'),
+            data.get('side_loading_rate'),
+            data.get('roof_loading_rate'),
+            data.get('regular_downtime_rate'),
+            data.get('forced_downtime_rate'),
+            data.get('notes', '')
+        )
+    )
+    
+    # Логируем действие
+    cursor.execute(
+        "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+        (message.from_user.id, "Добавление водителя", f"Добавлен водитель: {data.get('name')}")
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    await message.answer(
+        f"Водитель {data.get('name')} успешно добавлен!", 
+        reply_markup=get_drivers_keyboard()
+    )
+    await state.finish()
 
     # Новые состояния для редактирования водителей
 class DriverEditStates(StatesGroup):
@@ -494,42 +534,84 @@ async def set_vehicle(callback_query: types.CallbackQuery):
         reply_markup=get_drivers_keyboard()
     )
     
-    # Получаем все введенные данные
-    data = await state.get_data()
-    
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    # Сохраняем в базу
-    cursor.execute(
-        """
-        INSERT INTO drivers 
-        (name, km_rate, side_loading_rate, roof_loading_rate, 
-        regular_downtime_rate, forced_downtime_rate, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            data.get('name'),
-            data.get('km_rate'),
-            data.get('side_loading_rate'),
-            data.get('roof_loading_rate'),
-            data.get('regular_downtime_rate'),
-            data.get('forced_downtime_rate'),
-            data.get('notes', '')
+    # Обработчик для удаления водителя
+    @dp.callback_query_handler(lambda c: c.data.startswith('delete_driver_'))
+    async def delete_driver(callback_query: types.CallbackQuery):
+        driver_id = int(callback_query.data.split('_')[2])
+        
+        conn = sqlite3.connect('salary_bot.db')
+        cursor = conn.cursor()
+        
+        # Получаем имя водителя
+        cursor.execute("SELECT name FROM drivers WHERE id = ?", (driver_id,))
+        driver_result = cursor.fetchone()
+        
+        if not driver_result:
+            await bot.answer_callback_query(callback_query.id, "Водитель не найден!")
+            conn.close()
+            return
+        
+        driver_name = driver_result[0]
+        
+        # Клавиатура для подтверждения
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(
+            types.InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirm_delete_{driver_id}"),
+            types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_delete")
         )
-    )
+        
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(
+            callback_query.from_user.id,
+            f"⚠️ Вы уверены, что хотите удалить водителя {driver_name}?",
+            reply_markup=keyboard
+        )
+        
+        conn.close()
     
-    # Логируем действие
-    cursor.execute(
-        "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
-        (message.from_user.id, "Добавление водителя", f"Добавлен водитель: {data.get('name')}")
-    )
+    # Обработчики для подтверждения и отмены удаления
+    @dp.callback_query_handler(lambda c: c.data.startswith('confirm_delete_'))
+    async def confirm_delete_driver(callback_query: types.CallbackQuery):
+        driver_id = int(callback_query.data.split('_')[2])
+        
+        conn = sqlite3.connect('salary_bot.db')
+        cursor = conn.cursor()
+        
+        # Получаем имя водителя
+        cursor.execute("SELECT name FROM drivers WHERE id = ?", (driver_id,))
+        driver_result = cursor.fetchone()
+        
+        if not driver_result:
+            await bot.answer_callback_query(callback_query.id, "Водитель не найден!")
+            conn.close()
+            return
+        
+        driver_name = driver_result[0]
+        
+        # Удаляем водителя
+        cursor.execute("DELETE FROM drivers WHERE id = ?", (driver_id,))
+        
+        # Логируем действие
+        cursor.execute(
+            "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+            (callback_query.from_user.id, "Удаление водителя", f"Удален водитель: {driver_name}")
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(
+            callback_query.from_user.id,
+            f"✅ Водитель {driver_name} успешно удален!",
+            reply_markup=get_drivers_keyboard()
+        )
     
-    conn.commit()
-    conn.close()
-    
-    await message.answer(
-        f"Водитель {data.get('name')} успешно добавлен!", 
-        reply_markup=get_drivers_keyboard()
-    )
-    await state.finish()
+    @dp.callback_query_handler(lambda c: c.data == "cancel_delete")
+    async def cancel_delete(callback_query: types.CallbackQuery):
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(
+            callback_query.from_user.id,
+            "❌ Удаление отменено.",
+            reply_markup=get_drivers_keyboard()
+        )
