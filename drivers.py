@@ -282,13 +282,14 @@ async def show_driver_info(callback_query: types.CallbackQuery):
     
     conn.close()
 
-# Добавьте также обработчик для кнопки "Назад к списку"
 @dp.callback_query_handler(lambda c: c.data == "back_to_drivers_list")
 async def back_to_drivers_list(callback_query: types.CallbackQuery):
     await bot.answer_callback_query(callback_query.id)
     
-    # Вызываем функцию для отображения списка водителей
+    # Создаем объект сообщения для передачи в функцию list_drivers
     message = types.Message.to_object({"text": "📋 Список водителей", "from": {"id": callback_query.from_user.id}})
+    
+    # Вызываем функцию для отображения списка водителей - она сделает все необходимое
     await list_drivers(message)
     
     # Формируем список водителей с инлайн-кнопками
