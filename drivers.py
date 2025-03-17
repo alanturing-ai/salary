@@ -110,17 +110,8 @@ async def back_button_handler(message: types.Message, state: FSMContext):
     conn.close()
     
     # Важно! Сообщаем, что сообщение обработано, чтобы оно не попало в другие обработчики
-    raise aiogram.utils.exceptions.MessageNotModified()
-    
-    # В зависимости от роли пользователя показываем соответствующую клавиатуру
-    if await check_user_access(cursor, message.from_user.id, required_role=1):
-        await message.answer("Главное меню:", reply_markup=get_editor_keyboard())
-    else:
-        await message.answer("Главное меню:", reply_markup=get_viewer_keyboard())
-    
-    conn.close()
+    return
 
-# Добавьте недостающие обработчики для полей водителя
 @dp.message_handler(state=DriverStates.waiting_for_side_loading_rate)
 async def process_side_loading_rate(message: types.Message, state: FSMContext):
     # Проверяем, не нажата ли кнопка "Назад"
@@ -216,6 +207,49 @@ async def process_notes(message: types.Message, state: FSMContext):
     await message.answer(confirmation_text)
     await DriverStates.waiting_for_confirmation.set()
 
+# Обработчик списка водителей
+@dp.message_handler(lambda message: message.text == "📋 Список водителей")
+async def list_drivers(message: types.Message):
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    if not await check_user_access(cursor, message.from_user.id, required_role=1):
+        await message.answer("У вас нет доступа к этой функции.")
+        conn.close()
+        return
+    
+    cursor.execute("SELECT id, name, km_rate FROM drivers ORDER BY name")
+    drivers = cursor.fetchall()
+    
+    if not drivers:
+        await message.answer("Список водителей пуст. Добавьте водителей с помощью кнопки '👤 Добавить водителя'.", 
+                           reply_markup=get_drivers_keyboard())
+        conn.close()
+        return
+    
+    # Формируем список водителей с инлайн-кнопками
+    text = "📋 Список водителей:\n\n"
+    
+    for driver_id, name, km_rate in drivers:
+        text += f"ID: {driver_id} | 👤 {name} | 💰 {km_rate} руб/км\n"
+    
+    text += "\nНажмите на имя водителя ниже, чтобы просмотреть детали:"
+    
+    # Создаем инлайн-клавиатуру для выбора водителя
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    for driver_id, name, _ in drivers:
+        keyboard.add(types.InlineKeyboardButton(
+            f"👤 {name}", callback_data=f"driver_info_{driver_id}"
+        ))
+    
+    # Отправляем одно сообщение с инлайн-клавиатурой
+    await message.answer(text, reply_markup=keyboard)
+    
+    # Показываем обычную клавиатуру отдельным вызовом
+    await message.answer("⌨️ Меню водителей", reply_markup=get_drivers_keyboard())
+    
+    conn.close()
+
 # Обработчик для просмотра информации о водителе
 @dp.callback_query_handler(lambda c: c.data.startswith('driver_info_'))
 async def show_driver_info(callback_query: types.CallbackQuery):
@@ -282,6 +316,7 @@ async def show_driver_info(callback_query: types.CallbackQuery):
     
     conn.close()
 
+# Обработчик для кнопки "Назад к списку"
 @dp.callback_query_handler(lambda c: c.data == "back_to_drivers_list")
 async def back_to_drivers_list(callback_query: types.CallbackQuery):
     await bot.answer_callback_query(callback_query.id)
@@ -289,36 +324,8 @@ async def back_to_drivers_list(callback_query: types.CallbackQuery):
     # Создаем объект сообщения для передачи в функцию list_drivers
     message = types.Message.to_object({"text": "📋 Список водителей", "from": {"id": callback_query.from_user.id}})
     
-    # Вызываем функцию для отображения списка водителей - она сделает все необходимое
+    # Вызываем функцию для отображения списка водителей
     await list_drivers(message)
-    
-    # Формируем список водителей с инлайн-кнопками
-    text = "📋 Список водителей:\n\n"
-    
-    for driver_id, name, km_rate in drivers:
-        text += f"ID: {driver_id} | 👤 {name} | 💰 {km_rate} руб/км\n"
-    
-    text += "\nНажмите на имя водителя ниже, чтобы просмотреть детали:"
-    
-    # Создаем инлайн-клавиатуру для выбора водителя
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
-    for driver_id, name, _ in drivers:
-        keyboard.add(types.InlineKeyboardButton(
-            f"👤 {name}", callback_data=f"driver_info_{driver_id}"
-        ))
-    
-    # Отправляем одно сообщение с инлайн-клавиатурой и показываем обычную клавиатуру
-    await message.answer(text, reply_markup=keyboard)
-    
-    # Показываем обычную клавиатуру отдельным вызовом, без отправки второго сообщения
-    await message.answer_chat_action("typing")
-    await message.bot.send_message(
-        message.from_user.id,
-        "⌨️ Меню водителей",
-        reply_markup=get_drivers_keyboard()
-    )
-    
-    conn.close()
 
 # Финальный обработчик для сохранения водителя
 @dp.message_handler(state=DriverStates.waiting_for_confirmation)
