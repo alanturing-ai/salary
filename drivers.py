@@ -78,8 +78,120 @@ async def process_km_rate(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("Ошибка! Введите число. Пример: 25.5")
 
-# Продолжите другие обработчики для всех состояний
-# ...
+# Обработчик для кнопки "Назад"
+@dp.message_handler(lambda message: message.text == "◀️ Назад")
+async def back_to_main(message: types.Message):
+    from bot import get_editor_keyboard, get_viewer_keyboard
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    if await check_user_access(cursor, message.from_user.id, required_role=1):
+        await message.answer("Главное меню:", reply_markup=get_editor_keyboard())
+    else:
+        await message.answer("Главное меню:", reply_markup=get_viewer_keyboard())
+    
+    conn.close()
+
+# Добавьте недостающие обработчики для полей водителя
+@dp.message_handler(state=DriverStates.waiting_for_side_loading_rate)
+async def process_side_loading_rate(message: types.Message, state: FSMContext):
+    try:
+        side_loading_rate = float(message.text.replace(',', '.'))
+        await state.update_data(side_loading_rate=side_loading_rate)
+        await message.answer("Введите ставку за погрузку/разгрузку крыши (в рублях):")
+        await DriverStates.waiting_for_roof_loading_rate.set()
+    except ValueError:
+        await message.answer("Ошибка! Введите число. Пример: 25.5")
+
+@dp.message_handler(state=DriverStates.waiting_for_roof_loading_rate)
+async def process_roof_loading_rate(message: types.Message, state: FSMContext):
+    try:
+        roof_loading_rate = float(message.text.replace(',', '.'))
+        await state.update_data(roof_loading_rate=roof_loading_rate)
+        await message.answer("Введите ставку за обычный простой (в рублях/час):")
+        await DriverStates.waiting_for_regular_downtime_rate.set()
+    except ValueError:
+        await message.answer("Ошибка! Введите число. Пример: 25.5")
+
+@dp.message_handler(state=DriverStates.waiting_for_regular_downtime_rate)
+async def process_regular_downtime_rate(message: types.Message, state: FSMContext):
+    try:
+        regular_downtime_rate = float(message.text.replace(',', '.'))
+        await state.update_data(regular_downtime_rate=regular_downtime_rate)
+        await message.answer("Введите ставку за вынужденный простой (в рублях/час):")
+        await DriverStates.waiting_for_forced_downtime_rate.set()
+    except ValueError:
+        await message.answer("Ошибка! Введите число. Пример: 25.5")
+
+@dp.message_handler(state=DriverStates.waiting_for_forced_downtime_rate)
+async def process_forced_downtime_rate(message: types.Message, state: FSMContext):
+    try:
+        forced_downtime_rate = float(message.text.replace(',', '.'))
+        await state.update_data(forced_downtime_rate=forced_downtime_rate)
+        await message.answer("Введите примечания (или отправьте '-' если примечаний нет):")
+        await DriverStates.waiting_for_notes.set()
+    except ValueError:
+        await message.answer("Ошибка! Введите число. Пример: 25.5")
+
+@dp.message_handler(state=DriverStates.waiting_for_notes)
+async def process_notes(message: types.Message, state: FSMContext):
+    notes = message.text
+    if notes == "-":
+        notes = ""
+    
+    await state.update_data(notes=notes)
+    
+    # Получаем данные для отображения
+    data = await state.get_data()
+    
+    # Формируем сообщение с введенными данными
+    confirmation_text = (
+        f"📌 Данные водителя:\n"
+        f"👤 Имя: {data['name']}\n"
+        f"💰 Ставка за км: {data['km_rate']} руб\n"
+        f"🚚 Боковой тент: {data['side_loading_rate']} руб\n"
+        f"🚚 Крыша: {data['roof_loading_rate']} руб\n"
+        f"⏱️ Обычный простой: {data['regular_downtime_rate']} руб/час\n"
+        f"⏱️ Вынужденный простой: {data['forced_downtime_rate']} руб/час\n"
+    )
+    
+    if notes:
+        confirmation_text += f"📝 Примечания: {notes}\n"
+    
+    confirmation_text += "\nСохранить? (да/нет)"
+    
+    await message.answer(confirmation_text)
+    await DriverStates.waiting_for_confirmation.set()
+
+# Обработчик для списка водителей
+@dp.message_handler(lambda message: message.text == "📋 Список водителей")
+async def list_drivers(message: types.Message):
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    if not await check_user_access(cursor, message.from_user.id, required_role=1):
+        await message.answer("У вас нет доступа к этой функции.")
+        conn.close()
+        return
+    
+    cursor.execute("SELECT id, name, km_rate FROM drivers ORDER BY name")
+    drivers = cursor.fetchall()
+    
+    if not drivers:
+        await message.answer("Список водителей пуст. Добавьте водителей с помощью кнопки '👤 Добавить водителя'.", 
+                           reply_markup=get_drivers_keyboard())
+        conn.close()
+        return
+    
+    # Формируем список водителей
+    text = "📋 Список водителей:\n\n"
+    
+    for driver_id, name, km_rate in drivers:
+        text += f"ID: {driver_id} | 👤 {name} | 💰 {km_rate} руб/км\n"
+    
+    await message.answer(text, reply_markup=get_drivers_keyboard())
+    conn.close()
 
 # Финальный обработчик для сохранения водителя
 @dp.message_handler(state=DriverStates.waiting_for_confirmation)
