@@ -122,11 +122,11 @@ async def back_button_handler(message: types.Message, state: FSMContext):
 # Добавьте недостающие обработчики для полей водителя
 @dp.message_handler(state=DriverStates.waiting_for_side_loading_rate)
 async def process_side_loading_rate(message: types.Message, state: FSMContext):
-        # Проверяем, не нажата ли кнопка "Назад"
-        if message.text == "◀️ Назад":
-            await state.finish()
-            await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
-            return
+    # Проверяем, не нажата ли кнопка "Назад"
+    if message.text == "◀️ Назад":
+        await state.finish()
+        await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
+        return
     try:
         side_loading_rate = float(message.text.replace(',', '.'))
         await state.update_data(side_loading_rate=side_loading_rate)
