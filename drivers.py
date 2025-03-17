@@ -64,12 +64,22 @@ async def add_driver(message: types.Message):
 # Последовательность шагов для ввода данных о водителе
 @dp.message_handler(state=DriverStates.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
+    # Проверяем, не нажата ли кнопка "Назад"
+if message.text == "◀️ Назад":
+    await state.finish()
+    await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
+    return
     await state.update_data(name=message.text)
     await message.answer("Введите ставку за километр (в рублях):")
     await DriverStates.waiting_for_km_rate.set()
 
 @dp.message_handler(state=DriverStates.waiting_for_km_rate)
 async def process_km_rate(message: types.Message, state: FSMContext):
+        # Проверяем, не нажата ли кнопка "Назад"
+if message.text == "◀️ Назад":
+    await state.finish()
+    await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
+    return
     try:
         km_rate = float(message.text.replace(',', '.'))
         await state.update_data(km_rate=km_rate)
@@ -112,6 +122,11 @@ async def back_button_handler(message: types.Message, state: FSMContext):
 # Добавьте недостающие обработчики для полей водителя
 @dp.message_handler(state=DriverStates.waiting_for_side_loading_rate)
 async def process_side_loading_rate(message: types.Message, state: FSMContext):
+        # Проверяем, не нажата ли кнопка "Назад"
+if message.text == "◀️ Назад":
+    await state.finish()
+    await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
+    return
     try:
         side_loading_rate = float(message.text.replace(',', '.'))
         await state.update_data(side_loading_rate=side_loading_rate)
@@ -122,6 +137,11 @@ async def process_side_loading_rate(message: types.Message, state: FSMContext):
 
 @dp.message_handler(state=DriverStates.waiting_for_roof_loading_rate)
 async def process_roof_loading_rate(message: types.Message, state: FSMContext):
+        # Проверяем, не нажата ли кнопка "Назад"
+if message.text == "◀️ Назад":
+    await state.finish()
+    await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
+    return
     try:
         roof_loading_rate = float(message.text.replace(',', '.'))
         await state.update_data(roof_loading_rate=roof_loading_rate)
@@ -132,6 +152,11 @@ async def process_roof_loading_rate(message: types.Message, state: FSMContext):
 
 @dp.message_handler(state=DriverStates.waiting_for_regular_downtime_rate)
 async def process_regular_downtime_rate(message: types.Message, state: FSMContext):
+        # Проверяем, не нажата ли кнопка "Назад"
+if message.text == "◀️ Назад":
+    await state.finish()
+    await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
+    return
     try:
         regular_downtime_rate = float(message.text.replace(',', '.'))
         await state.update_data(regular_downtime_rate=regular_downtime_rate)
@@ -142,6 +167,11 @@ async def process_regular_downtime_rate(message: types.Message, state: FSMContex
 
 @dp.message_handler(state=DriverStates.waiting_for_forced_downtime_rate)
 async def process_forced_downtime_rate(message: types.Message, state: FSMContext):
+        # Проверяем, не нажата ли кнопка "Назад"
+if message.text == "◀️ Назад":
+    await state.finish()
+    await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
+    return
     try:
         forced_downtime_rate = float(message.text.replace(',', '.'))
         await state.update_data(forced_downtime_rate=forced_downtime_rate)
@@ -152,6 +182,11 @@ async def process_forced_downtime_rate(message: types.Message, state: FSMContext
 
 @dp.message_handler(state=DriverStates.waiting_for_notes)
 async def process_notes(message: types.Message, state: FSMContext):
+        # Проверяем, не нажата ли кнопка "Назад"
+if message.text == "◀️ Назад":
+    await state.finish()
+    await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
+    return
     notes = message.text
     if notes == "-":
         notes = ""
@@ -438,6 +473,11 @@ async def edit_field(callback_query: types.CallbackQuery, state: FSMContext):
 # Обработчик для ввода нового значения
 @dp.message_handler(state=DriverEditStates.waiting_for_new_value)
 async def process_new_value(message: types.Message, state: FSMContext):
+    # Проверяем, не нажата ли кнопка "Назад"
+if message.text == "◀️ Назад":
+    await state.finish()
+    await message.answer("Действие отменено", reply_markup=get_drivers_keyboard())
+    return
     data = await state.get_data()
     driver_id = data.get('driver_id')
     field = data.get('field')
