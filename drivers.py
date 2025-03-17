@@ -78,22 +78,30 @@ async def process_km_rate(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("Ошибка! Введите число. Пример: 25.5")
 
-# Обработчик для кнопки "Назад"
-@dp.message_handler(lambda message: message.text == "◀️ Назад", state="*")
-async def back_to_main(message: types.Message, state: FSMContext):
-    # Получаем текущее состояние
+# Фильтр для кнопки "Назад" с высоким приоритетом
+@dp.message_handler(lambda message: message.text == "◀️ Назад", state="*", priority=1)
+async def back_button_handler(message: types.Message, state: FSMContext):
+    # Получаем и сбрасываем текущее состояние
     current_state = await state.get_state()
-    
-    # Если есть активное состояние, завершаем его
     if current_state:
+        logging.info(f"Отмена состояния {current_state}")
         await state.finish()
-        await message.answer("Действие отменено.")
     
-    # Импортируем клавиатуры из основного модуля
     from bot import get_editor_keyboard, get_viewer_keyboard
     
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
+    
+    try:
+        if await check_user_access(cursor, message.from_user.id, required_role=1):
+            await message.answer("Действие отменено. Возврат в главное меню.", reply_markup=get_editor_keyboard())
+        else:
+            await message.answer("Действие отменено. Возврат в главное меню.", reply_markup=get_viewer_keyboard())
+    except Exception as e:
+        logging.error(f"Ошибка при возврате: {e}")
+        await message.answer("Произошла ошибка. Попробуйте ещё раз.")
+    finally:
+        conn.close()
     
     # В зависимости от роли пользователя показываем соответствующую клавиатуру
     if await check_user_access(cursor, message.from_user.id, required_role=1):
