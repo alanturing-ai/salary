@@ -1,4 +1,4 @@
-from aiogram import types
+ from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from bot import dp, bot, check_user_access
@@ -79,8 +79,12 @@ async def process_km_rate(message: types.Message, state: FSMContext):
         await message.answer("Ошибка! Введите число. Пример: 25.5")
 
 # Обработчик для кнопки "Назад"
-@dp.message_handler(lambda message: message.text == "◀️ Назад")
-async def back_to_main(message: types.Message):
+@dp.message_handler(lambda message: message.text == "◀️ Назад", state="*")
+async def back_to_main(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state:
+        await state.finish()
+    
     from bot import get_editor_keyboard, get_viewer_keyboard
     
     conn = sqlite3.connect('salary_bot.db')
@@ -164,7 +168,7 @@ async def process_notes(message: types.Message, state: FSMContext):
     await message.answer(confirmation_text)
     await DriverStates.waiting_for_confirmation.set()
 
-# Обработчик для списка водителей
+# Обновленный обработчик списка водителей с интерактивными кнопками
 @dp.message_handler(lambda message: message.text == "📋 Список водителей")
 async def list_drivers(message: types.Message):
     conn = sqlite3.connect('salary_bot.db')
@@ -190,7 +194,18 @@ async def list_drivers(message: types.Message):
     for driver_id, name, km_rate in drivers:
         text += f"ID: {driver_id} | 👤 {name} | 💰 {km_rate} руб/км\n"
     
+    # Отправляем список водителей с обычной клавиатурой
     await message.answer(text, reply_markup=get_drivers_keyboard())
+    
+    # Отправляем отдельное сообщение с инлайн-кнопками
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    for driver_id, name, _ in drivers:
+        keyboard.add(types.InlineKeyboardButton(
+            f"👤 {name}", callback_data=f"driver_info_{driver_id}"
+        ))
+    
+    await message.answer("Выберите водителя для просмотра деталей:", reply_markup=keyboard)
+    
     conn.close()
 
 # Финальный обработчик для сохранения водителя
