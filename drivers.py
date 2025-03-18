@@ -322,7 +322,13 @@ async def back_to_drivers_list(callback_query: types.CallbackQuery):
     await bot.answer_callback_query(callback_query.id)
     
     # Создаем объект сообщения для передачи в функцию list_drivers
-    message = types.Message.to_object({"text": "📋 Список водителей", "from": {"id": callback_query.from_user.id}})
+    message = types.Message.to_object({
+        "message_id": 1,
+        "date": 1,
+        "chat": {"id": callback_query.from_user.id, "type": "private"},
+        "from": {"id": callback_query.from_user.id},
+        "text": "📋 Список водителей"
+    })
     
     # Вызываем функцию для отображения списка водителей
     await list_drivers(message)
@@ -610,51 +616,3 @@ async def delete_driver(callback_query: types.CallbackQuery):
     )
     
     conn.close()
-
-# Обработчик для подтверждения удаления
-@dp.callback_query_handler(lambda c: c.data.startswith('confirm_delete_'))
-async def confirm_delete_driver(callback_query: types.CallbackQuery):
-    driver_id = int(callback_query.data.split('_')[2])
-    
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    # Получаем имя водителя
-    cursor.execute("SELECT name FROM drivers WHERE id = ?", (driver_id,))
-    driver_result = cursor.fetchone()
-    
-    if not driver_result:
-        await bot.answer_callback_query(callback_query.id, "Водитель не найден!")
-        conn.close()
-        return
-    
-    driver_name = driver_result[0]
-    
-    # Удаляем водителя
-    cursor.execute("DELETE FROM drivers WHERE id = ?", (driver_id,))
-    
-    # Логируем действие
-    cursor.execute(
-        "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
-        (callback_query.from_user.id, "Удаление водителя", f"Удален водитель: {driver_name}")
-    )
-    
-    conn.commit()
-    conn.close()
-    
-    await bot.answer_callback_query(callback_query.id)
-    await bot.send_message(
-        callback_query.from_user.id,
-        f"✅ Водитель {driver_name} успешно удален!",
-        reply_markup=get_drivers_keyboard()
-    )
-
-# Обработчик для отмены удаления
-@dp.callback_query_handler(lambda c: c.data == "cancel_delete")
-async def cancel_delete(callback_query: types.CallbackQuery):
-    await bot.answer_callback_query(callback_query.id)
-    await bot.send_message(
-        callback_query.from_user.id,
-        "❌ Удаление отменено.",
-        reply_markup=get_drivers_keyboard()
-    )
