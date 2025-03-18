@@ -260,15 +260,30 @@ async def show_driver_info(callback_query: types.CallbackQuery):
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
     
-    # Получаем данные водителя
-    cursor.execute("""
-        SELECT d.name, d.km_rate, d.side_loading_rate, d.roof_loading_rate,
-               d.regular_downtime_rate, d.forced_downtime_rate, d.notes,
-               v.truck_number, v.trailer_number
-        FROM drivers d
-        LEFT JOIN vehicles v ON d.vehicle_id = v.id
-        WHERE d.id = ?
-    """, (driver_id,))
+    # Проверяем структуру таблицы перед выполнением запроса
+    cursor.execute("PRAGMA table_info(drivers)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    has_vehicle_id = 'vehicle_id' in columns
+    
+    if has_vehicle_id:
+        # Получаем данные водителя с информацией о транспорте
+        cursor.execute("""
+            SELECT d.name, d.km_rate, d.side_loading_rate, d.roof_loading_rate,
+                d.regular_downtime_rate, d.forced_downtime_rate, d.notes,
+                v.truck_number, v.trailer_number
+            FROM drivers d
+            LEFT JOIN vehicles v ON d.vehicle_id = v.id
+            WHERE d.id = ?
+        """, (driver_id,))
+    else:
+        # Получаем данные водителя без информации о транспорте
+        cursor.execute("""
+            SELECT name, km_rate, side_loading_rate, roof_loading_rate,
+                regular_downtime_rate, forced_downtime_rate, notes
+            FROM drivers
+            WHERE id = ?
+        """, (driver_id,))
     
     driver_data = cursor.fetchone()
     
@@ -277,7 +292,12 @@ async def show_driver_info(callback_query: types.CallbackQuery):
         conn.close()
         return
     
-    name, km_rate, side_rate, roof_rate, reg_rate, forced_rate, notes, truck, trailer = driver_data
+    # Формируем сообщение в зависимости от наличия столбца vehicle_id
+    if has_vehicle_id:
+        name, km_rate, side_rate, roof_rate, reg_rate, forced_rate, notes, truck, trailer = driver_data
+    else:
+        name, km_rate, side_rate, roof_rate, reg_rate, forced_rate, notes = driver_data
+        truck, trailer = None, None
     
     # Формируем сообщение
     text = (
@@ -290,7 +310,7 @@ async def show_driver_info(callback_query: types.CallbackQuery):
         f"⏱️ Вынужденный простой: {forced_rate} руб/час\n"
     )
     
-    if truck and trailer:
+    if has_vehicle_id and truck and trailer:
         text += f"🚛 Автопоезд: {truck}/{trailer}\n"
     else:
         text += "🚛 Автопоезд: не назначен\n"
@@ -301,9 +321,16 @@ async def show_driver_info(callback_query: types.CallbackQuery):
     # Создаем клавиатуру для редактирования
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.add(
-        types.InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_driver_{driver_id}"),
-        types.InlineKeyboardButton("🚛 Назначить автопоезд", callback_data=f"assign_vehicle_{driver_id}")
+        types.InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_driver_{driver_id}")
     )
+    
+    # Добавляем кнопку назначения автопоезда только если колонка существует
+    if has_vehicle_id:
+        keyboard.add(types.InlineKeyboardButton("🚛 Назначить автопоезд", callback_data=f"assign_vehicle_{driver_id}"))
+    else:
+        # Если столбца нет, то предлагаем обновить БД
+        keyboard.add(types.InlineKeyboardButton("🔄 Обновить базу данных", callback_data=f"update_db_structure"))
+    
     keyboard.add(types.InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_driver_{driver_id}"))
     keyboard.add(types.InlineKeyboardButton("◀️ Назад к списку", callback_data="back_to_drivers_list"))
     
@@ -332,6 +359,31 @@ async def back_to_drivers_list(callback_query: types.CallbackQuery):
     
     # Вызываем функцию для отображения списка водителей
     await list_drivers(message)
+
+# Обработчик для обновления структуры БД
+@dp.callback_query_handler(lambda c: c.data == "update_db_structure")
+async def update_db_structure(callback_query: types.CallbackQuery):
+    await bot.answer_callback_query(callback_query.id)
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("ALTER TABLE drivers ADD COLUMN vehicle_id INTEGER")
+        conn.commit()
+        await bot.send_message(
+            callback_query.from_user.id,
+            "✅ База данных успешно обновлена! Теперь вы можете назначать автопоезда водителям.",
+            reply_markup=get_drivers_keyboard()
+        )
+    except sqlite3.OperationalError:
+        await bot.send_message(
+            callback_query.from_user.id,
+            "❌ Не удалось обновить базу данных. Возможно, она уже обновлена.",
+            reply_markup=get_drivers_keyboard()
+        )
+    
+    conn.close()
 
 # Финальный обработчик для сохранения водителя
 @dp.message_handler(state=DriverStates.waiting_for_confirmation)
@@ -502,6 +554,23 @@ async def assign_vehicle(callback_query: types.CallbackQuery):
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
     
+    # Проверяем структуру таблицы перед выполнением запроса
+    cursor.execute("PRAGMA table_info(drivers)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    if 'vehicle_id' not in columns:
+        # Если колонки нет, добавляем ее
+        try:
+            cursor.execute("ALTER TABLE drivers ADD COLUMN vehicle_id INTEGER")
+            conn.commit()
+            await bot.send_message(
+                callback_query.from_user.id,
+                "✅ База данных обновлена: добавлена поддержка автопоездов!"
+            )
+        except sqlite3.OperationalError:
+            # Колонка уже существует или другая ошибка
+            pass
+    
     # Получаем список автопоездов
     cursor.execute("SELECT id, truck_number, trailer_number FROM vehicles ORDER BY truck_number")
     vehicles = cursor.fetchall()
@@ -546,6 +615,19 @@ async def set_vehicle(callback_query: types.CallbackQuery):
     
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
+    
+    # Проверяем структуру таблицы перед выполнением запроса
+    cursor.execute("PRAGMA table_info(drivers)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    if 'vehicle_id' not in columns:
+        # Если колонки нет, добавляем ее
+        try:
+            cursor.execute("ALTER TABLE drivers ADD COLUMN vehicle_id INTEGER")
+            conn.commit()
+        except sqlite3.OperationalError:
+            # Колонка уже существует или другая ошибка
+            pass
     
     # Получаем имя водителя
     cursor.execute("SELECT name FROM drivers WHERE id = ?", (driver_id,))
@@ -616,3 +698,51 @@ async def delete_driver(callback_query: types.CallbackQuery):
     )
     
     conn.close()
+
+# Обработчик для подтверждения удаления
+@dp.callback_query_handler(lambda c: c.data.startswith('confirm_delete_'))
+async def confirm_delete_driver(callback_query: types.CallbackQuery):
+    driver_id = int(callback_query.data.split('_')[2])
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    # Получаем имя водителя
+    cursor.execute("SELECT name FROM drivers WHERE id = ?", (driver_id,))
+    driver_result = cursor.fetchone()
+    
+    if not driver_result:
+        await bot.answer_callback_query(callback_query.id, "Водитель не найден!")
+        conn.close()
+        return
+    
+    driver_name = driver_result[0]
+    
+    # Удаляем водителя
+    cursor.execute("DELETE FROM drivers WHERE id = ?", (driver_id,))
+    
+    # Логируем действие
+    cursor.execute(
+        "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+        (callback_query.from_user.id, "Удаление водителя", f"Удален водитель: {driver_name}")
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    await bot.answer_callback_query(callback_query.id)
+    await bot.send_message(
+        callback_query.from_user.id,
+        f"✅ Водитель {driver_name} успешно удален!",
+        reply_markup=get_drivers_keyboard()
+    )
+
+# Обработчик для отмены удаления
+@dp.callback_query_handler(lambda c: c.data == "cancel_delete")
+async def cancel_delete(callback_query: types.CallbackQuery):
+    await bot.answer_callback_query(callback_query.id)
+    await bot.send_message(
+        callback_query.from_user.id,
+        "❌ Удаление отменено.",
+        reply_markup=get_drivers_keyboard()
+    )
