@@ -994,7 +994,7 @@ async def driver_statistics(message: types.Message):
             )
     
     await message.answer(text)
-    conn.close()trip_id,))
+    conn.close()
     
     trip_data = cursor.fetchone()
     
