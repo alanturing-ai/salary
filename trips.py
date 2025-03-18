@@ -642,6 +642,26 @@ async def process_trip_id_for_downtime(message: types.Message, state: FSMContext
     WHERE t.id = ?
     """, (trip_id,))
     
+    trip_data = cursor.fetchone()
+    
+    if not trip_data:
+        await message.answer("Рейс с таким ID не найден. Проверьте номер и попробуйте снова.")
+        conn.close()
+        return
+    
+    await state.update_data(
+        trip_id=trip_id,
+        trip_info=f"Рейс #{trip_data[0]}: Водитель {trip_data[1]}, {trip_data[2]} → {trip_data[3]}"
+    )
+    
+    # Получаем данные о водителе для расчета оплаты
+    cursor.execute("""
+    SELECT d.regular_downtime_rate, d.forced_downtime_rate
+    FROM trips t
+    JOIN drivers d ON t.driver_id = d.id
+    WHERE t.id = ?
+    """, (trip_id,))
+    
     downtime_rates = cursor.fetchone()
     
     await state.update_data(
@@ -995,23 +1015,3 @@ async def driver_statistics(message: types.Message):
     
     await message.answer(text)
     conn.close()
-    
-    trip_data = cursor.fetchone()
-    
-    if not trip_data:
-        await message.answer("Рейс с таким ID не найден. Проверьте номер и попробуйте снова.")
-        conn.close()
-        return
-    
-    await state.update_data(
-        trip_id=trip_id,
-        trip_info=f"Рейс #{trip_data[0]}: Водитель {trip_data[1]}, {trip_data[2]} → {trip_data[3]}"
-    )
-    
-    # Получаем данные о водителе для расчета оплаты
-    cursor.execute("""
-    SELECT d.regular_downtime_rate, d.forced_downtime_rate
-    FROM trips t
-    JOIN drivers d ON t.driver_id = d.id
-    WHERE t.id = ?
-    """, (
