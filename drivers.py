@@ -137,7 +137,7 @@ async def process_roof_loading_rate(message: types.Message, state: FSMContext):
     try:
         roof_loading_rate = float(message.text.replace(',', '.'))
         await state.update_data(roof_loading_rate=roof_loading_rate)
-        await message.answer("Введите ставку за обычный простой (в рублях/час):")
+        await message.answer("Введите ставку за обычный простой (в рублях/день):")
         await DriverStates.waiting_for_regular_downtime_rate.set()
     except ValueError:
         await message.answer("Ошибка! Введите число. Пример: 25.5")
@@ -152,7 +152,7 @@ async def process_regular_downtime_rate(message: types.Message, state: FSMContex
     try:
         regular_downtime_rate = float(message.text.replace(',', '.'))
         await state.update_data(regular_downtime_rate=regular_downtime_rate)
-        await message.answer("Введите ставку за вынужденный простой (в рублях/час):")
+        await message.answer("Введите ставку за вынужденный простой (в рублях/день):")
         await DriverStates.waiting_for_forced_downtime_rate.set()
     except ValueError:
         await message.answer("Ошибка! Введите число. Пример: 25.5")
@@ -195,8 +195,8 @@ async def process_notes(message: types.Message, state: FSMContext):
         f"💰 Ставка за км: {data['km_rate']} руб\n"
         f"🚚 Боковой тент: {data['side_loading_rate']} руб\n"
         f"🚚 Крыша: {data['roof_loading_rate']} руб\n"
-        f"⏱️ Обычный простой: {data['regular_downtime_rate']} руб/час\n"
-        f"⏱️ Вынужденный простой: {data['forced_downtime_rate']} руб/час\n"
+        f"⏱️ Обычный простой: {data['regular_downtime_rate']} руб/день\n"
+        f"⏱️ Вынужденный простой: {data['forced_downtime_rate']} руб/день\n"
     )
     
     if notes:
@@ -306,8 +306,8 @@ async def show_driver_info(callback_query: types.CallbackQuery):
         f"💰 Ставка за км: {km_rate} руб\n"
         f"🚚 Боковой тент: {side_rate} руб\n"
         f"🚚 Крыша: {roof_rate} руб\n"
-        f"⏱️ Обычный простой: {reg_rate} руб/час\n"
-        f"⏱️ Вынужденный простой: {forced_rate} руб/час\n"
+        f"⏱️ Обычный простой: {reg_rate} руб/день\n"
+        f"⏱️ Вынужденный простой: {forced_rate} руб/день\n"
     )
     
     if has_vehicle_id and truck and trailer:
@@ -480,8 +480,8 @@ async def edit_field(callback_query: types.CallbackQuery, state: FSMContext):
         "km_rate": "ставку за километр (в рублях)",
         "side_loading_rate": "ставку за погрузку/разгрузку бокового тента (в рублях)",
         "roof_loading_rate": "ставку за погрузку/разгрузку крыши (в рублях)",
-        "regular_downtime_rate": "ставку за обычный простой (в рублях/час)",
-        "forced_downtime_rate": "ставку за вынужденный простой (в рублях/час)",
+        "regular_downtime_rate": "ставку за обычный простой (в рублях/день)",
+        "forced_downtime_rate": "ставку за вынужденный простой (в рублях/день)",
         "notes": "примечания"
     }
     
