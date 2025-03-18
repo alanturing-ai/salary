@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import io
 import csv
+import logging
 
 # Состояния для добавления рейса
 class TripStates(StatesGroup):
@@ -98,6 +99,7 @@ async def add_trip(message: types.Message):
 # Обработчик выбора водителя
 @dp.callback_query_handler(lambda c: c.data.startswith('driver_'), state=TripStates.waiting_for_driver)
 async def process_driver_selection(callback_query: types.CallbackQuery, state: FSMContext):
+    logging.info(f"Обработка выбора водителя: {callback_query.data}")
     driver_id = int(callback_query.data.split('_')[1])
     
     conn = sqlite3.connect('salary_bot.db')
@@ -115,356 +117,6 @@ async def process_driver_selection(callback_query: types.CallbackQuery, state: F
     driver_data = cursor.fetchone()
     
     await state.update_data(
-        regular_downtime_rate=downtime_rates[0],
-        forced_downtime_rate=downtime_rates[1]
-    )
-    
-    # Создаем клавиатуру для выбора типа простоя
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-        InlineKeyboardButton("Регулярный простой", callback_data="downtime_regular"),
-        InlineKeyboardButton("Вынужденный простой", callback_data="downtime_forced")
-    )
-    
-    await message.answer(
-        f"Выбран {trip_data[0]}\n"
-        f"Водитель: {trip_data[1]}\n"
-        f"Маршрут: {trip_data[2]} → {trip_data[3]}\n\n"
-        f"Выберите тип простоя:",
-        reply_markup=keyboard
-    )
-    
-    await DowntimeStates.waiting_for_downtime_type.set()
-    conn.close()
-
-# Обработчик выбора типа простоя
-@dp.callback_query_handler(lambda c: c.data.startswith('downtime_'), state=DowntimeStates.waiting_for_downtime_type)
-async def process_downtime_type(callback_query: types.CallbackQuery, state: FSMContext):
-    downtime_type = callback_query.data.split('_')[1]
-    
-    if downtime_type == "regular":
-        await state.update_data(downtime_type=1, downtime_name="Регулярный простой")
-    else:
-        await state.update_data(downtime_type=2, downtime_name="Вынужденный простой")
-    
-    data = await state.get_data()
-    
-    await bot.edit_message_text(
-        chat_id=callback_query.message.chat.id,
-        message_id=callback_query.message.message_id,
-        text=f"Выбран {data['trip_info']}\nТип простоя: {data['downtime_name']}\n\nВведите количество часов простоя:"
-    )
-    
-    await DowntimeStates.waiting_for_hours.set()
-
-# Обработчик ввода часов простоя
-@dp.message_handler(state=DowntimeStates.waiting_for_hours)
-async def process_downtime_hours(message: types.Message, state: FSMContext):
-    try:
-        hours = float(message.text.replace(',', '.').strip())
-        
-        if hours <= 0:
-            await message.answer("Количество часов должно быть положительным числом. Введите часы снова.")
-            return
-        
-    except ValueError:
-        await message.answer("Пожалуйста, введите корректное число. Введите часы снова.")
-        return
-    
-    # Получаем данные из состояния
-    data = await state.get_data()
-    
-    # Рассчитываем оплату за простой
-    rate = data['regular_downtime_rate'] if data['downtime_type'] == 1 else data['forced_downtime_rate']
-    payment = hours * rate
-    
-    await state.update_data(
-        hours=hours,
-        payment=payment
-    )
-    
-    # Формируем сообщение для подтверждения
-    summary = (
-        f"📋 Информация о простое:\n\n"
-        f"{data['trip_info']}\n"
-        f"Тип простоя: {data['downtime_name']}\n"
-        f"Количество часов: {hours}\n"
-        f"Ставка: {rate} руб/час\n"
-        f"Сумма оплаты: {payment} руб\n\n"
-        f"Данные верны? Введите 'Да' для сохранения или любой другой текст для отмены."
-    )
-    
-    await message.answer(summary)
-    await DowntimeStates.waiting_for_confirmation.set()
-
-# Обработчик подтверждения добавления простоя
-@dp.message_handler(state=DowntimeStates.waiting_for_confirmation)
-async def confirm_downtime(message: types.Message, state: FSMContext):
-    if message.text.lower() not in ["да", "сохранить", "+"]:
-        await message.answer("Отменено. Данные не сохранены.", reply_markup=get_editor_keyboard())
-        await state.finish()
-        return
-    
-    # Получаем данные из состояния
-    data = await state.get_data()
-    
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    try:
-        # Добавляем простой в базу данных
-        cursor.execute(
-            """
-            INSERT INTO downtimes (trip_id, type, hours, payment)
-            VALUES (?, ?, ?, ?)
-            """,
-            (data['trip_id'], data['downtime_type'], data['hours'], data['payment'])
-        )
-        
-        # Обновляем общую сумму рейса
-        cursor.execute(
-            """
-            UPDATE trips
-            SET total_payment = total_payment + ?
-            WHERE id = ?
-            """,
-            (data['payment'], data['trip_id'])
-        )
-        
-        # Логируем действие
-        cursor.execute(
-            "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
-            (
-                message.from_user.id, 
-                "Добавление простоя", 
-                f"Рейс #{data['trip_id']}: {data['downtime_name']}, {data['hours']} ч, {data['payment']} руб."
-            )
-        )
-        
-        conn.commit()
-        
-        await message.answer(
-            f"✅ Простой успешно добавлен!\n"
-            f"Рейс #{data['trip_id']}\n"
-            f"Тип: {data['downtime_name']}\n"
-            f"Часы: {data['hours']}\n"
-            f"Оплата: {data['payment']} руб.",
-            reply_markup=get_editor_keyboard()
-        )
-    
-    except Exception as e:
-        conn.rollback()
-        await message.answer(
-            f"❌ Ошибка при добавлении простоя: {str(e)}",
-            reply_markup=get_editor_keyboard()
-        )
-    
-    finally:
-        conn.close()
-        await state.finish()
-
-# Обработчик для поиска и просмотра конкретного рейса
-@dp.message_handler(lambda message: message.text == "🔍 Найти рейс")
-async def search_trip(message: types.Message):
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    if not await check_user_access(cursor, message.from_user.id, required_role=2):
-        await message.answer("У вас нет доступа к этой функции.")
-        conn.close()
-        return
-    
-    # Проверяем наличие рейсов
-    cursor.execute("SELECT COUNT(*) FROM trips")
-    trips_count = cursor.fetchone()[0]
-    
-    if trips_count == 0:
-        await message.answer("В базе данных нет рейсов.")
-        conn.close()
-        return
-    
-    await message.answer(
-        "Введите ID рейса или фамилию водителя для поиска:"
-    )
-    
-    conn.close()
-
-# Обработчик для поиска рейса
-@dp.message_handler(lambda message: message.text.startswith("/trip_"))
-async def view_trip_by_id(message: types.Message):
-    try:
-        trip_id = int(message.text.split("_")[1])
-    except (ValueError, IndexError):
-        await message.answer("Неверный формат ID рейса. Используйте формат /trip_123")
-        return
-    
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    # Получаем информацию о рейсе
-    cursor.execute("""
-    SELECT t.id, d.name, v.truck_number, v.trailer_number,
-           t.loading_city, t.unloading_city, t.distance,
-           t.side_loading_count, t.roof_loading_count,
-           t.total_payment, t.created_at
-    FROM trips t
-    JOIN drivers d ON t.driver_id = d.id
-    JOIN vehicles v ON t.vehicle_id = v.id
-    WHERE t.id = ?
-    """, (trip_id,))
-    
-    trip = cursor.fetchone()
-    
-    if not trip:
-        await message.answer(f"Рейс с ID {trip_id} не найден.")
-        conn.close()
-        return
-    
-    # Получаем информацию о простоях
-    cursor.execute("""
-    SELECT type, hours, payment
-    FROM downtimes
-    WHERE trip_id = ?
-    ORDER BY type
-    """, (trip_id,))
-    
-    downtimes = cursor.fetchall()
-    
-    # Формируем текст сообщения
-    trip_id, driver, truck, trailer, load_city, unload_city, distance, side_loading, roof_loading, payment, date = trip
-    
-    text = (
-        f"📋 Информация о рейсе #{trip_id}\n\n"
-        f"📅 Дата: {date.split(' ')[0]}\n"
-        f"👤 Водитель: {driver}\n"
-        f"🚛 Автопоезд: {truck} / {trailer}\n"
-        f"🗺️ Маршрут: {load_city} → {unload_city}\n"
-        f"📏 Расстояние: {distance} км\n"
-        f"🔄 Загрузки: {side_loading} боковых, {roof_loading} через крышу\n"
-    )
-    
-    if downtimes:
-        text += "\n⏱️ Простои:\n"
-        for dtype, hours, dpayment in downtimes:
-            downtime_type = "Регулярный" if dtype == 1 else "Вынужденный"
-            text += f"  • {downtime_type}: {hours} ч. ({dpayment} руб.)\n"
-    
-    text += f"\n💰 Итоговая оплата: {payment} руб."
-    
-    await message.answer(text)
-    conn.close()
-
-# Обработчик поиска по тексту
-@dp.message_handler(lambda message: message.text not in ["➕ Добавить рейс", "🗂️ История рейсов", "⏱️ Добавить простой", "🔍 Найти рейс"])
-async def search_trips(message: types.Message):
-    search_text = message.text.strip().lower()
-    
-    if not search_text:
-        return
-    
-    # Проверяем, является ли ввод числом (ID рейса)
-    try:
-        trip_id = int(search_text)
-        # Если да, делаем поиск по ID
-        await view_trip_by_id(types.Message(text=f"/trip_{trip_id}"))
-        return
-    except ValueError:
-        pass
-    
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    # Поиск по имени водителя, городам и номерам ТС
-    cursor.execute("""
-    SELECT t.id, d.name, t.loading_city, t.unloading_city, t.created_at
-    FROM trips t
-    JOIN drivers d ON t.driver_id = d.id
-    JOIN vehicles v ON t.vehicle_id = v.id
-    WHERE 
-        LOWER(d.name) LIKE ? OR
-        LOWER(t.loading_city) LIKE ? OR
-        LOWER(t.unloading_city) LIKE ? OR
-        LOWER(v.truck_number) LIKE ? OR
-        LOWER(v.trailer_number) LIKE ?
-    ORDER BY t.created_at DESC
-    LIMIT 10
-    """, (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%"))
-    
-    trips = cursor.fetchall()
-    
-    if not trips:
-        await message.answer(f"По запросу '{search_text}' ничего не найдено.")
-        conn.close()
-        return
-    
-    # Создаем клавиатуру с результатами поиска
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    
-    for trip_id, driver, loading, unloading, date in trips:
-        date_short = date.split(" ")[0]
-        btn_text = f"#{trip_id}: {driver}, {loading}-{unloading} ({date_short})"
-        keyboard.add(InlineKeyboardButton(btn_text, callback_data=f"view_trip_{trip_id}"))
-    
-    await message.answer(
-        f"Найдено {len(trips)} рейсов по запросу '{search_text}'.\nВыберите рейс для просмотра:",
-        reply_markup=keyboard
-    )
-    
-    conn.close()
-
-# Обработчик выбора рейса из результатов поиска
-@dp.callback_query_handler(lambda c: c.data.startswith('view_trip_'))
-async def process_trip_selection(callback_query: types.CallbackQuery):
-    trip_id = int(callback_query.data.split('_')[2])
-    
-    await bot.answer_callback_query(callback_query.id)
-    await view_trip_by_id(types.Message(text=f"/trip_{trip_id}", from_user=callback_query.from_user))
-
-# Обработчик для статистики водителей
-@dp.message_handler(lambda message: message.text == "📊 Статистика водителей")
-async def driver_statistics(message: types.Message):
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    if not await check_user_access(cursor, message.from_user.id, required_role=1):
-        await message.answer("У вас нет доступа к этой функции.")
-        conn.close()
-        return
-    
-    # Получаем статистику по водителям за последние 30 дней
-    cursor.execute("""
-    SELECT d.name, 
-           COUNT(t.id) as trips_count,
-           SUM(t.distance) as total_distance,
-           SUM(t.total_payment) as total_payment
-    FROM drivers d
-    LEFT JOIN trips t ON d.id = t.driver_id AND t.created_at >= datetime('now', '-30 days')
-    GROUP BY d.id
-    ORDER BY total_payment DESC
-    """)
-    
-    stats = cursor.fetchall()
-    
-    if not stats:
-        await message.answer("Нет данных для статистики.")
-        conn.close()
-        return
-    
-    text = "📊 Статистика водителей за последние 30 дней:\n\n"
-    
-    for name, trips_count, total_distance, total_payment in stats:
-        if trips_count is None or trips_count == 0:
-            text += f"👤 {name}: нет рейсов\n\n"
-        else:
-            text += (
-                f"👤 {name}:\n"
-                f"  • Рейсов: {trips_count}\n"
-                f"  • Пробег: {int(total_distance) if total_distance else 0} км\n"
-                f"  • Заработок: {int(total_payment) if total_payment else 0} руб.\n\n"
-            )
-    
-    await message.answer(text)
-    conn.close().update_data(
         driver_id=driver_id,
         driver_name=driver_data[0],
         km_rate=driver_data[1],
@@ -990,6 +642,360 @@ async def process_trip_id_for_downtime(message: types.Message, state: FSMContext
     WHERE t.id = ?
     """, (trip_id,))
     
+    downtime_rates = cursor.fetchone()
+    
+    await state.update_data(
+        regular_downtime_rate=downtime_rates[0],
+        forced_downtime_rate=downtime_rates[1]
+    )
+    
+    # Создаем клавиатуру для выбора типа простоя
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("Регулярный простой", callback_data="downtime_regular"),
+        InlineKeyboardButton("Вынужденный простой", callback_data="downtime_forced")
+    )
+    
+    await message.answer(
+        f"Выбран {trip_data[0]}\n"
+        f"Водитель: {trip_data[1]}\n"
+        f"Маршрут: {trip_data[2]} → {trip_data[3]}\n\n"
+        f"Выберите тип простоя:",
+        reply_markup=keyboard
+    )
+    
+    await DowntimeStates.waiting_for_downtime_type.set()
+    conn.close()
+
+# Обработчик выбора типа простоя
+@dp.callback_query_handler(lambda c: c.data.startswith('downtime_'), state=DowntimeStates.waiting_for_downtime_type)
+async def process_downtime_type(callback_query: types.CallbackQuery, state: FSMContext):
+    downtime_type = callback_query.data.split('_')[1]
+    
+    if downtime_type == "regular":
+        await state.update_data(downtime_type=1, downtime_name="Регулярный простой")
+    else:
+        await state.update_data(downtime_type=2, downtime_name="Вынужденный простой")
+    
+    data = await state.get_data()
+    
+    await bot.edit_message_text(
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id,
+        text=f"Выбран {data['trip_info']}\nТип простоя: {data['downtime_name']}\n\nВведите количество часов простоя:"
+    )
+    
+    await DowntimeStates.waiting_for_hours.set()
+
+# Обработчик ввода часов простоя
+@dp.message_handler(state=DowntimeStates.waiting_for_hours)
+async def process_downtime_hours(message: types.Message, state: FSMContext):
+    try:
+        hours = float(message.text.replace(',', '.').strip())
+        
+        if hours <= 0:
+            await message.answer("Количество часов должно быть положительным числом. Введите часы снова.")
+            return
+        
+    except ValueError:
+        await message.answer("Пожалуйста, введите корректное число. Введите часы снова.")
+        return
+    
+    # Получаем данные из состояния
+    data = await state.get_data()
+    
+    # Рассчитываем оплату за простой
+    rate = data['regular_downtime_rate'] if data['downtime_type'] == 1 else data['forced_downtime_rate']
+    payment = hours * rate
+    
+    await state.update_data(
+        hours=hours,
+        payment=payment
+    )
+    
+    # Формируем сообщение для подтверждения
+    summary = (
+        f"📋 Информация о простое:\n\n"
+        f"{data['trip_info']}\n"
+        f"Тип простоя: {data['downtime_name']}\n"
+        f"Количество часов: {hours}\n"
+        f"Ставка: {rate} руб/час\n"
+        f"Сумма оплаты: {payment} руб\n\n"
+        f"Данные верны? Введите 'Да' для сохранения или любой другой текст для отмены."
+    )
+    
+    await message.answer(summary)
+    await DowntimeStates.waiting_for_confirmation.set()
+
+# Обработчик подтверждения добавления простоя
+@dp.message_handler(state=DowntimeStates.waiting_for_confirmation)
+async def confirm_downtime(message: types.Message, state: FSMContext):
+    if message.text.lower() not in ["да", "сохранить", "+"]:
+        await message.answer("Отменено. Данные не сохранены.", reply_markup=get_editor_keyboard())
+        await state.finish()
+        return
+    
+    # Получаем данные из состояния
+    data = await state.get_data()
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Добавляем простой в базу данных
+        cursor.execute(
+            """
+            INSERT INTO downtimes (trip_id, type, hours, payment)
+            VALUES (?, ?, ?, ?)
+            """,
+            (data['trip_id'], data['downtime_type'], data['hours'], data['payment'])
+        )
+        
+        # Обновляем общую сумму рейса
+        cursor.execute(
+            """
+            UPDATE trips
+            SET total_payment = total_payment + ?
+            WHERE id = ?
+            """,
+            (data['payment'], data['trip_id'])
+        )
+        
+        # Логируем действие
+        cursor.execute(
+            "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+            (
+                message.from_user.id, 
+                "Добавление простоя", 
+                f"Рейс #{data['trip_id']}: {data['downtime_name']}, {data['hours']} ч, {data['payment']} руб."
+            )
+        )
+        
+        conn.commit()
+        
+        await message.answer(
+            f"✅ Простой успешно добавлен!\n"
+            f"Рейс #{data['trip_id']}\n"
+            f"Тип: {data['downtime_name']}\n"
+            f"Часы: {data['hours']}\n"
+            f"Оплата: {data['payment']} руб.",
+            reply_markup=get_editor_keyboard()
+        )
+    
+    except Exception as e:
+        conn.rollback()
+        await message.answer(
+            f"❌ Ошибка при добавлении простоя: {str(e)}",
+            reply_markup=get_editor_keyboard()
+        )
+    
+    finally:
+        conn.close()
+        await state.finish()
+
+# Обработчик для поиска и просмотра конкретного рейса
+@dp.message_handler(lambda message: message.text == "🔍 Найти рейс")
+async def search_trip(message: types.Message):
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    if not await check_user_access(cursor, message.from_user.id, required_role=2):
+        await message.answer("У вас нет доступа к этой функции.")
+        conn.close()
+        return
+    
+    # Проверяем наличие рейсов
+    cursor.execute("SELECT COUNT(*) FROM trips")
+    trips_count = cursor.fetchone()[0]
+    
+    if trips_count == 0:
+        await message.answer("В базе данных нет рейсов.")
+        conn.close()
+        return
+    
+    await message.answer(
+        "Введите ID рейса или фамилию водителя для поиска:"
+    )
+    
+    conn.close()
+
+# Обработчик для поиска рейса
+@dp.message_handler(lambda message: message.text.startswith("/trip_"))
+async def view_trip_by_id(message: types.Message):
+    try:
+        trip_id = int(message.text.split("_")[1])
+    except (ValueError, IndexError):
+        await message.answer("Неверный формат ID рейса. Используйте формат /trip_123")
+        return
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    # Получаем информацию о рейсе
+    cursor.execute("""
+    SELECT t.id, d.name, v.truck_number, v.trailer_number,
+           t.loading_city, t.unloading_city, t.distance,
+           t.side_loading_count, t.roof_loading_count,
+           t.total_payment, t.created_at
+    FROM trips t
+    JOIN drivers d ON t.driver_id = d.id
+    JOIN vehicles v ON t.vehicle_id = v.id
+    WHERE t.id = ?
+    """, (trip_id,))
+    
+    trip = cursor.fetchone()
+    
+    if not trip:
+        await message.answer(f"Рейс с ID {trip_id} не найден.")
+        conn.close()
+        return
+    
+    # Получаем информацию о простоях
+    cursor.execute("""
+    SELECT type, hours, payment
+    FROM downtimes
+    WHERE trip_id = ?
+    ORDER BY type
+    """, (trip_id,))
+    
+    downtimes = cursor.fetchall()
+    
+    # Формируем текст сообщения
+    trip_id, driver, truck, trailer, load_city, unload_city, distance, side_loading, roof_loading, payment, date = trip
+    
+    text = (
+        f"📋 Информация о рейсе #{trip_id}\n\n"
+        f"📅 Дата: {date.split(' ')[0]}\n"
+        f"👤 Водитель: {driver}\n"
+        f"🚛 Автопоезд: {truck} / {trailer}\n"
+        f"🗺️ Маршрут: {load_city} → {unload_city}\n"
+        f"📏 Расстояние: {distance} км\n"
+        f"🔄 Загрузки: {side_loading} боковых, {roof_loading} через крышу\n"
+    )
+    
+    if downtimes:
+        text += "\n⏱️ Простои:\n"
+        for dtype, hours, dpayment in downtimes:
+            downtime_type = "Регулярный" if dtype == 1 else "Вынужденный"
+            text += f"  • {downtime_type}: {hours} ч. ({dpayment} руб.)\n"
+    
+    text += f"\n💰 Итоговая оплата: {payment} руб."
+    
+    await message.answer(text)
+    conn.close()
+
+# Обработчик поиска по тексту
+@dp.message_handler(lambda message: message.text not in ["➕ Добавить рейс", "🗂️ История рейсов", "⏱️ Добавить простой", "🔍 Найти рейс", "🚛 Управление"])
+async def search_trips(message: types.Message):
+    search_text = message.text.strip().lower()
+    
+    if not search_text:
+        return
+    
+    # Проверяем, является ли ввод числом (ID рейса)
+    try:
+        trip_id = int(search_text)
+        # Если да, делаем поиск по ID
+        await view_trip_by_id(types.Message(text=f"/trip_{trip_id}", from_user=message.from_user, chat=message.chat))
+        return
+    except ValueError:
+        pass
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    # Поиск по имени водителя, городам и номерам ТС
+    cursor.execute("""
+    SELECT t.id, d.name, t.loading_city, t.unloading_city, t.created_at
+    FROM trips t
+    JOIN drivers d ON t.driver_id = d.id
+    JOIN vehicles v ON t.vehicle_id = v.id
+    WHERE 
+        LOWER(d.name) LIKE ? OR
+        LOWER(t.loading_city) LIKE ? OR
+        LOWER(t.unloading_city) LIKE ? OR
+        LOWER(v.truck_number) LIKE ? OR
+        LOWER(v.trailer_number) LIKE ?
+    ORDER BY t.created_at DESC
+    LIMIT 10
+    """, (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%"))
+    
+    trips = cursor.fetchall()
+    
+    if not trips:
+        await message.answer(f"По запросу '{search_text}' ничего не найдено.")
+        conn.close()
+        return
+    
+    # Создаем клавиатуру с результатами поиска
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    
+    for trip_id, driver, loading, unloading, date in trips:
+        date_short = date.split(" ")[0]
+        btn_text = f"#{trip_id}: {driver}, {loading}-{unloading} ({date_short})"
+        keyboard.add(InlineKeyboardButton(btn_text, callback_data=f"view_trip_{trip_id}"))
+    
+    await message.answer(
+        f"Найдено {len(trips)} рейсов по запросу '{search_text}'.\nВыберите рейс для просмотра:",
+        reply_markup=keyboard
+    )
+    
+    conn.close()
+
+# Обработчик выбора рейса из результатов поиска
+@dp.callback_query_handler(lambda c: c.data.startswith('view_trip_'))
+async def process_trip_selection(callback_query: types.CallbackQuery):
+    trip_id = int(callback_query.data.split('_')[2])
+    
+    await bot.answer_callback_query(callback_query.id)
+    await view_trip_by_id(types.Message(text=f"/trip_{trip_id}", from_user=callback_query.from_user, chat=callback_query.message.chat))
+
+# Обработчик для статистики водителей
+@dp.message_handler(lambda message: message.text == "📊 Статистика водителей")
+async def driver_statistics(message: types.Message):
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    if not await check_user_access(cursor, message.from_user.id, required_role=1):
+        await message.answer("У вас нет доступа к этой функции.")
+        conn.close()
+        return
+    
+    # Получаем статистику по водителям за последние 30 дней
+    cursor.execute("""
+    SELECT d.name, 
+           COUNT(t.id) as trips_count,
+           SUM(t.distance) as total_distance,
+           SUM(t.total_payment) as total_payment
+    FROM drivers d
+    LEFT JOIN trips t ON d.id = t.driver_id AND t.created_at >= datetime('now', '-30 days')
+    GROUP BY d.id
+    ORDER BY total_payment DESC
+    """)
+    
+    stats = cursor.fetchall()
+    
+    if not stats:
+        await message.answer("Нет данных для статистики.")
+        conn.close()
+        return
+    
+    text = "📊 Статистика водителей за последние 30 дней:\n\n"
+    
+    for name, trips_count, total_distance, total_payment in stats:
+        if trips_count is None or trips_count == 0:
+            text += f"👤 {name}: нет рейсов\n\n"
+        else:
+            text += (
+                f"👤 {name}:\n"
+                f"  • Рейсов: {trips_count}\n"
+                f"  • Пробег: {int(total_distance) if total_distance else 0} км\n"
+                f"  • Заработок: {int(total_payment) if total_payment else 0} руб.\n\n"
+            )
+    
+    await message.answer(text)
+    conn.close()trip_id,))
+    
     trip_data = cursor.fetchone()
     
     if not trip_data:
@@ -1008,8 +1014,4 @@ async def process_trip_id_for_downtime(message: types.Message, state: FSMContext
     FROM trips t
     JOIN drivers d ON t.driver_id = d.id
     WHERE t.id = ?
-    """, (trip_id,))
-    
-    downtime_rates = cursor.fetchone()
-    
-    await state
+    """, (
