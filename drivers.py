@@ -245,8 +245,8 @@ async def list_drivers(message: types.Message):
     # Отправляем одно сообщение с инлайн-клавиатурой
     await message.answer(text, reply_markup=keyboard)
     
-    # Показываем обычную клавиатуру отдельным вызовом
-    await message.answer("⌨️ Меню водителей", reply_markup=get_drivers_keyboard())
+    # Показываем обычную клавиатуру отдельным вызовом (без текста)
+    await message.answer("", reply_markup=get_drivers_keyboard())
     
     conn.close()
 
@@ -545,6 +545,24 @@ async def process_new_value(message: types.Message, state: FSMContext):
         reply_markup=get_drivers_keyboard()
     )
     await state.finish()
+    
+    # После обновления данных показываем обновленную карточку водителя
+    # Создаем callback с id водителя
+    callback_data = f"driver_info_{driver_id}"
+    
+    # Создаем новый объект callback_query (через объект Message)
+    callback = types.CallbackQuery(
+        id=str(message.message_id),
+        from_user=message.from_user,
+        chat_instance=str(message.chat.id),
+        message=message,
+        data=callback_data,
+        inline_message_id=None,
+        game_short_name=None
+    )
+    
+    # Показываем карточку водителя с обновленными данными
+    await show_driver_info(callback)
 
 # Обработчик для назначения автопоезда водителю
 @dp.callback_query_handler(lambda c: c.data.startswith('assign_vehicle_'))
@@ -658,11 +676,30 @@ async def set_vehicle(callback_query: types.CallbackQuery):
     conn.close()
     
     await bot.answer_callback_query(callback_query.id)
+    
+    # Подтверждаем назначение автопоезда
     await bot.send_message(
         callback_query.from_user.id,
-        f"✅ Автопоезд для водителя {driver_name} {vehicle_info if vehicle_id != 0 else 'не назначен'}.",
-        reply_markup=get_drivers_keyboard()
+        f"✅ Автопоезд для водителя {driver_name} {vehicle_info if vehicle_id != 0 else 'не назначен'}."
     )
+    
+    # После назначения автопоезда, показываем обновленную информацию о водителе
+    # Создаем объект для вызова функции show_driver_info с тем же водителем
+    data = f"driver_info_{driver_id}"
+    
+    # Создаем новый объект callback_query
+    new_callback = types.CallbackQuery(
+        id=callback_query.id,
+        from_user=callback_query.from_user,
+        chat_instance=callback_query.chat_instance,
+        message=callback_query.message,
+        data=data,
+        inline_message_id=callback_query.inline_message_id,
+        game_short_name=callback_query.game_short_name
+    )
+    
+    # Вызываем функцию для отображения обновленной информации
+    await show_driver_info(new_callback)
 
 # Обработчик для удаления водителя
 @dp.callback_query_handler(lambda c: c.data.startswith('delete_driver_'))
