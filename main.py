@@ -10,6 +10,7 @@ import admin
 import drivers
 import vehicles
 import trips
+import salaries
 
 # Настраиваем логирование (подробнее для отладки)
 logging.basicConfig(
