@@ -33,16 +33,6 @@ def check_db_structure():
 # Вызываем функцию проверки структуры БД при импорте модуля
 check_db_structure()
 
-# Отладочный обработчик, выводящий точное представление текста сообщения
-@dp.message_handler(content_types=types.ContentTypes.TEXT)
-async def debug_message(message: types.Message):
-    if "актуальные данные" in message.text.lower():
-        # Распечатываем текст сообщения в виде списка кодов символов
-        text_repr = [ord(c) for c in message.text]
-        await message.answer(f"Отладка: получено сообщение '{message.text}'\nКоды: {text_repr}")
-        # Вызываем основной обработчик вручную
-        await show_current_data(message)
-
 # Обработчик для показа актуальных данных
 @dp.message_handler(lambda message: message.text == "📊 Актуальные данные")
 async def show_current_data(message: types.Message):
