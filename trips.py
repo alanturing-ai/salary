@@ -13,6 +13,7 @@ import logging
 class TripStates(StatesGroup):
     waiting_for_driver = State()
     waiting_for_vehicle = State()
+    waiting_for_trip_1c_number = State()  # Новое состояние для номера рейса из 1С
     waiting_for_loading_city = State()
     waiting_for_unloading_city = State()
     waiting_for_distance = State()
@@ -20,6 +21,13 @@ class TripStates(StatesGroup):
     waiting_for_roof_loading = State()
     waiting_for_regular_downtime = State()
     waiting_for_forced_downtime = State()
+    waiting_for_confirmation = State()
+
+# Состояния для редактирования рейса
+class EditTripStates(StatesGroup):
+    waiting_for_trip_id = State()
+    waiting_for_field = State()
+    waiting_for_new_value = State()
     waiting_for_confirmation = State()
 
 # Состояния для добавления простоя к существующему рейсу
@@ -54,6 +62,15 @@ def calculate_trip_payment(driver_data, distance, side_loading, roof_loading, re
         'total': total
     }
 
+# Функция для создания навигационных кнопок (Назад/Отмена)
+def get_navigation_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("⬅️ Назад", callback_data="trip_back"),
+        InlineKeyboardButton("❌ Отмена", callback_data="trip_cancel")
+    )
+    return keyboard
+
 # Обработчик для добавления рейса
 @dp.message_handler(lambda message: message.text == "➕ Добавить рейс")
 async def add_trip(message: types.Message):
@@ -83,7 +100,7 @@ async def add_trip(message: types.Message):
         conn.close()
         return
     
-    # Создаем клавиатуру с водителями
+    # Создаем клавиатуру с водителями и навигационными кнопками
     cursor.execute("SELECT id, name FROM drivers ORDER BY name")
     drivers = cursor.fetchall()
     
@@ -91,10 +108,241 @@ async def add_trip(message: types.Message):
     for driver_id, name in drivers:
         keyboard.add(InlineKeyboardButton(f"{name}", callback_data=f"driver_{driver_id}"))
     
+    # Добавляем только кнопку отмены, т.к. это первый шаг
+    keyboard.add(InlineKeyboardButton("❌ Отмена", callback_data="trip_cancel"))
+    
     await message.answer("Выберите водителя:", reply_markup=keyboard)
     await TripStates.waiting_for_driver.set()
     
     conn.close()
+
+# Обработчик для кнопок навигации
+@dp.callback_query_handler(lambda c: c.data in ["trip_back", "trip_cancel"], state="*")
+async def process_navigation(callback_query: types.CallbackQuery, state: FSMContext):
+    current_state = await state.get_state()
+    
+    if callback_query.data == "trip_cancel":
+        # Отмена и возврат в главное меню
+        await state.finish()
+        await bot.edit_message_text(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            text="Действие отменено. Возврат в главное меню.",
+            reply_markup=None
+        )
+        
+        # Определяем, какую клавиатуру показать
+        conn = sqlite3.connect('salary_bot.db')
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT role FROM users WHERE user_id = ?", (callback_query.from_user.id,))
+        user_role = cursor.fetchone()
+        conn.close()
+        
+        if user_role and user_role[0] == 1:
+            await bot.send_message(
+                callback_query.message.chat.id,
+                "Главное меню:",
+                reply_markup=get_editor_keyboard()
+            )
+        else:
+            await bot.send_message(
+                callback_query.message.chat.id,
+                "Главное меню:",
+                reply_markup=get_viewer_keyboard()
+            )
+        
+        return
+    
+    elif callback_query.data == "trip_back":
+        # Возврат на предыдущий шаг
+        if current_state == "TripStates:waiting_for_vehicle":
+            # Возврат к выбору водителя
+            conn = sqlite3.connect('salary_bot.db')
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT id, name FROM drivers ORDER BY name")
+            drivers = cursor.fetchall()
+            
+            keyboard = InlineKeyboardMarkup(row_width=1)
+            for driver_id, name in drivers:
+                keyboard.add(InlineKeyboardButton(f"{name}", callback_data=f"driver_{driver_id}"))
+            
+            keyboard.add(InlineKeyboardButton("❌ Отмена", callback_data="trip_cancel"))
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text="Выберите водителя:",
+                reply_markup=keyboard
+            )
+            
+            await TripStates.waiting_for_driver.set()
+            conn.close()
+            
+        elif current_state == "TripStates:waiting_for_trip_1c_number":
+            # Возврат к выбору автопоезда
+            conn = sqlite3.connect('salary_bot.db')
+            cursor = conn.cursor()
+            
+            data = await state.get_data()
+            
+            cursor.execute("SELECT id, truck_number, trailer_number FROM vehicles ORDER BY truck_number")
+            vehicles = cursor.fetchall()
+            
+            keyboard = InlineKeyboardMarkup(row_width=1)
+            for vehicle_id, truck, trailer in vehicles:
+                keyboard.add(InlineKeyboardButton(f"{truck} / {trailer}", callback_data=f"vehicle_{vehicle_id}"))
+            
+            keyboard.add(
+                InlineKeyboardButton("⬅️ Назад", callback_data="trip_back"),
+                InlineKeyboardButton("❌ Отмена", callback_data="trip_cancel")
+            )
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=f"Выбран водитель: {data.get('driver_name', '')}\nВыберите автопоезд:",
+                reply_markup=keyboard
+            )
+            
+            await TripStates.waiting_for_vehicle.set()
+            conn.close()
+            
+        elif current_state == "TripStates:waiting_for_loading_city":
+            # Возврат к вводу номера рейса из 1С
+            data = await state.get_data()
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=f"Выбран автопоезд: {data.get('truck_number', '')} / {data.get('trailer_number', '')}\nВведите номер рейса из 1С:",
+                reply_markup=get_navigation_keyboard()
+            )
+            
+            await TripStates.waiting_for_trip_1c_number.set()
+            
+        elif current_state == "TripStates:waiting_for_unloading_city":
+            # Возврат к вводу города погрузки
+            data = await state.get_data()
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=f"Номер рейса из 1С: {data.get('trip_1c_number', '')}\nВведите город погрузки:",
+                reply_markup=get_navigation_keyboard()
+            )
+            
+            await TripStates.waiting_for_loading_city.set()
+            
+        elif current_state == "TripStates:waiting_for_distance":
+            # Возврат к вводу города разгрузки
+            data = await state.get_data()
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=f"Город погрузки: {data.get('loading_city', '')}\nВведите город разгрузки:",
+                reply_markup=get_navigation_keyboard()
+            )
+            
+            await TripStates.waiting_for_unloading_city.set()
+            
+        elif current_state == "TripStates:waiting_for_side_loading":
+            # Возврат к вводу расстояния
+            data = await state.get_data()
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=f"Город разгрузки: {data.get('unloading_city', '')}\nВведите расстояние в километрах (только число):",
+                reply_markup=get_navigation_keyboard()
+            )
+            
+            await TripStates.waiting_for_distance.set()
+            
+        elif current_state == "TripStates:waiting_for_roof_loading":
+            # Возврат к вводу боковых загрузок
+            data = await state.get_data()
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=f"Расстояние: {data.get('distance', '')} км\nВведите количество боковых загрузок (число от 0):",
+                reply_markup=get_navigation_keyboard()
+            )
+            
+            await TripStates.waiting_for_side_loading.set()
+            
+        elif current_state == "TripStates:waiting_for_regular_downtime":
+            # Возврат к вводу загрузок через крышу
+            data = await state.get_data()
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=f"Боковых загрузок: {data.get('side_loading', '')}\nВведите количество загрузок через крышу (число от 0):",
+                reply_markup=get_navigation_keyboard()
+            )
+            
+            await TripStates.waiting_for_roof_loading.set()
+            
+        elif current_state == "TripStates:waiting_for_forced_downtime":
+            # Возврат к вводу регулярного простоя
+            data = await state.get_data()
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=f"Загрузок через крышу: {data.get('roof_loading', '')}\nВведите часы регулярного простоя (число от 0):",
+                reply_markup=get_navigation_keyboard()
+            )
+            
+            await TripStates.waiting_for_regular_downtime.set()
+            
+        elif current_state == "TripStates:waiting_for_confirmation":
+            # Возврат к вводу вынужденного простоя
+            data = await state.get_data()
+            
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=f"Регулярный простой: {data.get('regular_downtime', '')} ч\nВведите часы вынужденного простоя (число от 0):",
+                reply_markup=get_navigation_keyboard()
+            )
+            
+            await TripStates.waiting_for_forced_downtime.set()
+        
+        # Аналогично для состояний редактирования рейса
+        elif current_state.startswith("EditTripStates:"):
+            await state.finish()
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text="Редактирование отменено. Возврат в главное меню.",
+                reply_markup=None
+            )
+            
+            # Отправляем клавиатуру в зависимости от роли
+            conn = sqlite3.connect('salary_bot.db')
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT role FROM users WHERE user_id = ?", (callback_query.from_user.id,))
+            user_role = cursor.fetchone()
+            conn.close()
+            
+            if user_role and user_role[0] == 1:
+                await bot.send_message(
+                    callback_query.message.chat.id,
+                    "Главное меню:",
+                    reply_markup=get_editor_keyboard()
+                )
+            else:
+                await bot.send_message(
+                    callback_query.message.chat.id,
+                    "Главное меню:",
+                    reply_markup=get_viewer_keyboard()
+                )
 
 # Обработчик выбора водителя
 @dp.callback_query_handler(lambda c: c.data.startswith('driver_'), state=TripStates.waiting_for_driver)
@@ -126,13 +374,19 @@ async def process_driver_selection(callback_query: types.CallbackQuery, state: F
         forced_downtime_rate=driver_data[5]
     )
     
-    # Создаем клавиатуру с автопоездами
+    # Создаем клавиатуру с автопоездами и навигационными кнопками
     cursor.execute("SELECT id, truck_number, trailer_number FROM vehicles ORDER BY truck_number")
     vehicles = cursor.fetchall()
     
     keyboard = InlineKeyboardMarkup(row_width=1)
     for vehicle_id, truck, trailer in vehicles:
         keyboard.add(InlineKeyboardButton(f"{truck} / {trailer}", callback_data=f"vehicle_{vehicle_id}"))
+    
+    # Добавляем навигационные кнопки
+    keyboard.add(
+        InlineKeyboardButton("⬅️ Назад", callback_data="trip_back"),
+        InlineKeyboardButton("❌ Отмена", callback_data="trip_cancel")
+    )
     
     await bot.edit_message_text(
         chat_id=callback_query.message.chat.id,
@@ -163,11 +417,36 @@ async def process_vehicle_selection(callback_query: types.CallbackQuery, state: 
         trailer_number=trailer_number
     )
     
+    # Отправляем сообщение с запросом номера рейса из 1С и навигационными кнопками
     await bot.edit_message_text(
         chat_id=callback_query.message.chat.id,
         message_id=callback_query.message.message_id,
-        text=f"Выбран автопоезд: {truck_number} / {trailer_number}\nВведите город погрузки:"
+        text=f"Выбран автопоезд: {truck_number} / {trailer_number}\nВведите номер рейса из 1С:",
+        reply_markup=get_navigation_keyboard()
     )
+    
+    await TripStates.waiting_for_trip_1c_number.set()
+
+# Обработчик ввода номера рейса из 1С
+@dp.message_handler(state=TripStates.waiting_for_trip_1c_number)
+async def process_trip_1c_number(message: types.Message, state: FSMContext):
+    trip_1c_number = message.text.strip()
+    
+    await state.update_data(trip_1c_number=trip_1c_number)
+    
+    # Удаляем предыдущее сообщение с кнопками навигации
+    # Находим последнее сообщение бота
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите номер рейса из 1С" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
+    # Отправляем новое сообщение с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    sent_message = await message.answer(f"Номер рейса из 1С: {trip_1c_number}\nВведите город погрузки:", reply_markup=keyboard)
     
     await TripStates.waiting_for_loading_city.set()
 
@@ -182,7 +461,19 @@ async def process_loading_city(message: types.Message, state: FSMContext):
     
     await state.update_data(loading_city=loading_city)
     
-    await message.answer(f"Город погрузки: {loading_city}\nВведите город разгрузки:")
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите город погрузки" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
+    # Отправляем новое сообщение с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    await message.answer(f"Город погрузки: {loading_city}\nВведите город разгрузки:", reply_markup=keyboard)
+    
     await TripStates.waiting_for_unloading_city.set()
 
 # Обработчик ввода города разгрузки
@@ -196,7 +487,19 @@ async def process_unloading_city(message: types.Message, state: FSMContext):
     
     await state.update_data(unloading_city=unloading_city)
     
-    await message.answer(f"Город разгрузки: {unloading_city}\nВведите расстояние в километрах (только число):")
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите город разгрузки" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
+    # Отправляем новое сообщение с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    await message.answer(f"Город разгрузки: {unloading_city}\nВведите расстояние в километрах (только число):", reply_markup=keyboard)
+    
     await TripStates.waiting_for_distance.set()
 
 # Обработчик ввода расстояния
@@ -215,7 +518,19 @@ async def process_distance(message: types.Message, state: FSMContext):
     
     await state.update_data(distance=distance)
     
-    await message.answer(f"Расстояние: {distance} км\nВведите количество боковых загрузок (число от 0):")
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите расстояние в километрах" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
+    # Отправляем новое сообщение с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    await message.answer(f"Расстояние: {distance} км\nВведите количество боковых загрузок (число от 0):", reply_markup=keyboard)
+    
     await TripStates.waiting_for_side_loading.set()
 
 # Обработчик ввода боковых загрузок
@@ -234,7 +549,19 @@ async def process_side_loading(message: types.Message, state: FSMContext):
     
     await state.update_data(side_loading=side_loading)
     
-    await message.answer(f"Боковых загрузок: {side_loading}\nВведите количество загрузок через крышу (число от 0):")
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите количество боковых загрузок" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
+    # Отправляем новое сообщение с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    await message.answer(f"Боковых загрузок: {side_loading}\nВведите количество загрузок через крышу (число от 0):", reply_markup=keyboard)
+    
     await TripStates.waiting_for_roof_loading.set()
 
 # Обработчик ввода загрузок через крышу
@@ -253,7 +580,19 @@ async def process_roof_loading(message: types.Message, state: FSMContext):
     
     await state.update_data(roof_loading=roof_loading)
     
-    await message.answer(f"Загрузок через крышу: {roof_loading}\nВведите часы регулярного простоя (число от 0):")
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите количество загрузок через крышу" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
+    # Отправляем новое сообщение с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    await message.answer(f"Загрузок через крышу: {roof_loading}\nВведите часы регулярного простоя (число от 0):", reply_markup=keyboard)
+    
     await TripStates.waiting_for_regular_downtime.set()
 
 # Обработчик ввода регулярного простоя
@@ -272,7 +611,19 @@ async def process_regular_downtime(message: types.Message, state: FSMContext):
     
     await state.update_data(regular_downtime=regular_downtime)
     
-    await message.answer(f"Регулярный простой: {regular_downtime} ч\nВведите часы вынужденного простоя (число от 0):")
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите часы регулярного простоя" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
+    # Отправляем новое сообщение с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    await message.answer(f"Регулярный простой: {regular_downtime} ч\nВведите часы вынужденного простоя (число от 0):", reply_markup=keyboard)
+    
     await TripStates.waiting_for_forced_downtime.set()
 
 # Обработчик ввода вынужденного простоя
@@ -323,12 +674,22 @@ async def process_forced_downtime(message: types.Message, state: FSMContext):
         total_payment=payment_data['total']
     )
     
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите часы вынужденного простоя" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
     # Формируем сообщение с итоговой информацией
     data = await state.get_data()  # Обновляем данные после добавления платежной информации
     summary = (
         f"📋 Информация о рейсе:\n\n"
         f"👤 Водитель: {data['driver_name']}\n"
         f"🚛 Автопоезд: {data['truck_number']} / {data['trailer_number']}\n"
+        f"📝 Номер рейса из 1С: {data.get('trip_1c_number', 'Не указан')}\n"
         f"🏙️ Маршрут: {data['loading_city']} → {data['unloading_city']}\n"
         f"📏 Расстояние: {data['distance']} км (={payment_data['km_payment']} руб.)\n"
         f"🔄 Загрузки: {data['side_loading']} бок. (={payment_data['side_loading_payment']} руб.), "
@@ -339,9 +700,11 @@ async def process_forced_downtime(message: types.Message, state: FSMContext):
         f"Данные верны? Введите 'Да' для сохранения или любой другой текст для отмены."
     )
     
-    await message.answer(summary)
+    # Отправляем с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    await message.answer(summary, reply_markup=keyboard)
     await TripStates.waiting_for_confirmation.set()
-
+    
 # Финальный обработчик для подтверждения и сохранения рейса
 @dp.message_handler(state=TripStates.waiting_for_confirmation)
 async def confirm_trip(message: types.Message, state: FSMContext):
@@ -353,17 +716,35 @@ async def confirm_trip(message: types.Message, state: FSMContext):
     # Получаем все введенные данные
     data = await state.get_data()
     
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Информация о рейсе" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
     
     try:
-        # Сохраняем рейс
+        # Проверяем, существует ли уже колонка trip_1c_number в таблице trips
+        cursor.execute("PRAGMA table_info(trips)")
+        columns = cursor.fetchall()
+        columns_names = [column[1] for column in columns]
+        
+        # Если колонки нет, добавляем ее
+        if 'trip_1c_number' not in columns_names:
+            cursor.execute("ALTER TABLE trips ADD COLUMN trip_1c_number TEXT")
+        
+        # Сохраняем рейс с номером из 1С
         cursor.execute(
             """
             INSERT INTO trips 
             (driver_id, vehicle_id, loading_city, unloading_city, distance,
-             side_loading_count, roof_loading_count, total_payment)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             side_loading_count, roof_loading_count, total_payment, trip_1c_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data.get('driver_id'),
@@ -373,7 +754,8 @@ async def confirm_trip(message: types.Message, state: FSMContext):
                 data.get('distance'),
                 data.get('side_loading', 0),
                 data.get('roof_loading', 0),
-                data.get('total_payment')
+                data.get('total_payment'),
+                data.get('trip_1c_number', '')
             )
         )
         trip_id = cursor.lastrowid
@@ -414,6 +796,7 @@ async def confirm_trip(message: types.Message, state: FSMContext):
         await message.answer(
             f"✅ Рейс успешно сохранен!\n"
             f"№ рейса: {trip_id}\n"
+            f"Номер из 1С: {data.get('trip_1c_number', 'Не указан')}\n"
             f"Итоговая сумма: {data.get('total_payment')} руб.",
             reply_markup=get_editor_keyboard()
         )
@@ -428,6 +811,374 @@ async def confirm_trip(message: types.Message, state: FSMContext):
     finally:
         conn.close()
         await state.finish()
+
+# Обработчик для редактирования рейса
+@dp.message_handler(lambda message: message.text == "✏️ Редактировать рейс")
+async def edit_trip(message: types.Message):
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    if not await check_user_access(cursor, message.from_user.id, required_role=1):
+        await message.answer("У вас нет доступа к этой функции.")
+        conn.close()
+        return
+    
+    # Проверяем наличие рейсов
+    cursor.execute("SELECT COUNT(*) FROM trips")
+    trips_count = cursor.fetchone()[0]
+    
+    if trips_count == 0:
+        await message.answer("В базе данных нет рейсов для редактирования.")
+        conn.close()
+        return
+    
+    await message.answer(
+        "Введите ID рейса для редактирования:"
+    )
+    
+    await EditTripStates.waiting_for_trip_id.set()
+    conn.close()
+
+# Обработчик ввода ID рейса для редактирования
+@dp.message_handler(state=EditTripStates.waiting_for_trip_id)
+async def process_edit_trip_id(message: types.Message, state: FSMContext):
+    try:
+        trip_id = int(message.text.strip())
+    except ValueError:
+        await message.answer("Пожалуйста, введите корректный ID рейса (целое число).")
+        return
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    # Проверяем существование рейса и получаем его данные
+    cursor.execute("""
+    SELECT t.id, d.name, v.truck_number, v.trailer_number, 
+           t.trip_1c_number, t.loading_city, t.unloading_city, 
+           t.distance, t.side_loading_count, t.roof_loading_count,
+           t.total_payment
+    FROM trips t
+    JOIN drivers d ON t.driver_id = d.id
+    JOIN vehicles v ON t.vehicle_id = v.id
+    WHERE t.id = ?
+    """, (trip_id,))
+    
+    trip_data = cursor.fetchone()
+    
+    if not trip_data:
+        await message.answer("Рейс с таким ID не найден. Проверьте номер и попробуйте снова.")
+        conn.close()
+        return
+    
+    # Сохраняем ID рейса в состоянии
+    await state.update_data(
+        trip_id=trip_id
+    )
+    
+    # Создаем текст с информацией о рейсе
+    trip_info = (
+        f"📋 Информация о рейсе #{trip_data[0]}:\n\n"
+        f"👤 Водитель: {trip_data[1]}\n"
+        f"🚛 Автопоезд: {trip_data[2]} / {trip_data[3]}\n"
+        f"📝 Номер рейса из 1С: {trip_data[4] or 'Не указан'}\n"
+        f"🏙️ Погрузка: {trip_data[5]}\n"
+        f"🏙️ Разгрузка: {trip_data[6]}\n"
+        f"📏 Расстояние: {trip_data[7]} км\n"
+        f"🔄 Боковые загрузки: {trip_data[8]}\n"
+        f"🔄 Загрузки через крышу: {trip_data[9]}\n"
+        f"💰 Итого: {trip_data[10]} руб.\n\n"
+        f"Выберите, что редактировать:"
+    )
+    
+    # Создаем клавиатуру с полями для редактирования
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("Номер рейса из 1С", callback_data="edit_trip_1c_number"),
+        InlineKeyboardButton("Город погрузки", callback_data="edit_loading_city"),
+        InlineKeyboardButton("Город разгрузки", callback_data="edit_unloading_city"),
+        InlineKeyboardButton("Расстояние", callback_data="edit_distance"),
+        InlineKeyboardButton("Боковые загрузки", callback_data="edit_side_loading"),
+        InlineKeyboardButton("Загрузки через крышу", callback_data="edit_roof_loading"),
+        InlineKeyboardButton("❌ Отмена", callback_data="trip_cancel")
+    )
+    
+    await message.answer(trip_info, reply_markup=keyboard)
+    await EditTripStates.waiting_for_field.set()
+    conn.close()
+
+# Обработчик выбора поля для редактирования
+@dp.callback_query_handler(lambda c: c.data.startswith('edit_'), state=EditTripStates.waiting_for_field)
+async def process_edit_field_selection(callback_query: types.CallbackQuery, state: FSMContext):
+    field = callback_query.data.replace('edit_', '')
+    
+    # Сохраняем выбранное поле в состоянии
+    await state.update_data(field=field)
+    
+    # Определяем текст сообщения в зависимости от выбранного поля
+    field_names = {
+        'trip_1c_number': 'номер рейса из 1С',
+        'loading_city': 'город погрузки',
+        'unloading_city': 'город разгрузки',
+        'distance': 'расстояние (км)',
+        'side_loading': 'количество боковых загрузок',
+        'roof_loading': 'количество загрузок через крышу'
+    }
+    
+    message_text = f"Введите новое значение для поля '{field_names.get(field, field)}':"
+    
+    if field in ['distance', 'side_loading', 'roof_loading']:
+        message_text += "\n(введите только число)"
+    
+    await bot.edit_message_text(
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id,
+        text=message_text,
+        reply_markup=get_navigation_keyboard()
+    )
+    
+    await EditTripStates.waiting_for_new_value.set()
+
+# Обработчик ввода нового значения для поля
+@dp.message_handler(state=EditTripStates.waiting_for_new_value)
+async def process_edit_new_value(message: types.Message, state: FSMContext):
+    # Получаем данные из состояния
+    data = await state.get_data()
+    field = data.get('field')
+    new_value = message.text.strip()
+    
+    # Валидация введенного значения в зависимости от поля
+    if field == 'distance':
+        try:
+            new_value = float(new_value.replace(',', '.'))
+            if new_value <= 0:
+                await message.answer("Расстояние должно быть положительным числом. Введите значение снова.")
+                return
+        except ValueError:
+            await message.answer("Пожалуйста, введите корректное число. Введите значение снова.")
+            return
+    
+    elif field in ['side_loading', 'roof_loading']:
+        try:
+            new_value = int(new_value)
+            if new_value < 0:
+                await message.answer("Количество загрузок не может быть отрицательным. Введите значение снова.")
+                return
+        except ValueError:
+            await message.answer("Пожалуйста, введите корректное целое число. Введите значение снова.")
+            return
+    
+    # Сохраняем новое значение в состоянии
+    await state.update_data(new_value=new_value)
+    
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите новое значение для поля" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
+    # Получаем информацию о рейсе для подтверждения
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    SELECT t.id, d.name, t.loading_city, t.unloading_city, t.trip_1c_number
+    FROM trips t
+    JOIN drivers d ON t.driver_id = d.id
+    WHERE t.id = ?
+    """, (data['trip_id'],))
+    
+    trip_info = cursor.fetchone()
+    conn.close()
+    
+    # Определяем названия полей для отображения
+    field_names = {
+        'trip_1c_number': 'Номер рейса из 1С',
+        'loading_city': 'Город погрузки',
+        'unloading_city': 'Город разгрузки',
+        'distance': 'Расстояние (км)',
+        'side_loading': 'Количество боковых загрузок',
+        'roof_loading': 'Количество загрузок через крышу'
+    }
+    
+    # Формируем сообщение для подтверждения
+    confirmation_text = (
+        f"📋 Редактирование рейса #{trip_info[0]}\n\n"
+        f"👤 Водитель: {trip_info[1]}\n"
+        f"🗺️ Маршрут: {trip_info[2]} → {trip_info[3]}\n"
+        f"📝 Номер рейса из 1С: {trip_info[4] or 'Не указан'}\n\n"
+        f"Вы хотите изменить поле '{field_names.get(field, field)}' на значение '{new_value}'.\n\n"
+        f"Подтвердите изменение: введите 'Да' для сохранения или любой другой текст для отмены."
+    )
+    
+    # Отправляем с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    await message.answer(confirmation_text, reply_markup=keyboard)
+    
+    await EditTripStates.waiting_for_confirmation.set()
+
+# Обработчик подтверждения редактирования
+@dp.message_handler(state=EditTripStates.waiting_for_confirmation)
+async def confirm_edit_trip(message: types.Message, state: FSMContext):
+    if message.text.lower() not in ["да", "сохранить", "+"]:
+        await message.answer("Отменено. Данные не изменены.", reply_markup=get_editor_keyboard())
+        await state.finish()
+        return
+    
+    # Получаем все данные из состояния
+    data = await state.get_data()
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Если редактируем расстояние, нужно пересчитать стоимость рейса
+        if data['field'] in ['distance', 'side_loading', 'roof_loading']:
+            # Получаем текущие данные рейса
+            cursor.execute("""
+            SELECT driver_id, distance, side_loading_count, roof_loading_count
+            FROM trips
+            WHERE id = ?
+            """, (data['trip_id'],))
+            
+            trip_data = cursor.fetchone()
+            
+            # Получаем ставки водителя
+            cursor.execute("""
+            SELECT km_rate, side_loading_rate, roof_loading_rate
+            FROM drivers
+            WHERE id = ?
+            """, (trip_data[0],))
+            
+            rates = cursor.fetchone()
+            
+            # Текущая оплата за километры
+            current_km_payment = trip_data[1] * rates[0]
+            current_side_loading_payment = trip_data[2] * rates[1]
+            current_roof_loading_payment = trip_data[3] * rates[2]
+            
+            # Новые значения
+            new_distance = data['new_value'] if data['field'] == 'distance' else trip_data[1]
+            new_side_loading = data['new_value'] if data['field'] == 'side_loading' else trip_data[2]
+            new_roof_loading = data['new_value'] if data['field'] == 'roof_loading' else trip_data[3]
+            
+            # Новая оплата
+            new_km_payment = new_distance * rates[0]
+            new_side_loading_payment = new_side_loading * rates[1]
+            new_roof_loading_payment = new_roof_loading * rates[2]
+            
+            # Разница в оплате
+            payment_difference = (
+                (new_km_payment - current_km_payment) +
+                (new_side_loading_payment - current_side_loading_payment) +
+                (new_roof_loading_payment - current_roof_loading_payment)
+            )
+            
+            # Обновляем поле и общую сумму оплаты
+            field_db_name = {
+                'distance': 'distance',
+                'side_loading': 'side_loading_count',
+                'roof_loading': 'roof_loading_count'
+            }.get(data['field'])
+            
+            cursor.execute(f"""
+            UPDATE trips
+            SET {field_db_name} = ?, total_payment = total_payment + ?
+            WHERE id = ?
+            """, (data['new_value'], payment_difference, data['trip_id']))
+        
+        else:
+            # Для текстовых полей просто обновляем значение
+            field_db_name = {
+                'trip_1c_number': 'trip_1c_number',
+                'loading_city': 'loading_city',
+                'unloading_city': 'unloading_city'
+            }.get(data['field'])
+            
+            cursor.execute(f"""
+            UPDATE trips
+            SET {field_db_name} = ?
+            WHERE id = ?
+            """, (data['new_value'], data['trip_id']))
+        
+        # Логируем действие
+        cursor.execute(
+            "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+            (
+                message.from_user.id, 
+                "Редактирование рейса", 
+                f"Рейс #{data['trip_id']}: изменено поле '{data['field']}' на '{data['new_value']}'"
+            )
+        )
+        
+        conn.commit()
+        
+        await message.answer(
+            f"✅ Рейс успешно отредактирован!\n"
+            f"Рейс #{data['trip_id']}\n"
+            f"Поле: {data['field']}\n"
+            f"Новое значение: {data['new_value']}",
+            reply_markup=get_editor_keyboard()
+        )
+    
+    except Exception as e:
+        conn.rollback()
+        await message.answer(
+            f"❌ Ошибка при редактировании рейса: {str(e)}",
+            reply_markup=get_editor_keyboard()
+        )
+    
+    finally:
+        conn.close()
+        await state.finish()
+
+# Функция для обновления схемы базы данных (добавление колонки trip_1c_number)
+async def update_database_schema():
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Проверяем, существует ли уже колонка trip_1c_number в таблице trips
+        cursor.execute("PRAGMA table_info(trips)")
+        columns = cursor.fetchall()
+        columns_names = [column[1] for column in columns]
+        
+        # Если колонки нет, добавляем ее
+        if 'trip_1c_number' not in columns_names:
+            cursor.execute("ALTER TABLE trips ADD COLUMN trip_1c_number TEXT")
+            conn.commit()
+            logging.info("Добавлена колонка trip_1c_number в таблицу trips")
+    except Exception as e:
+        logging.error(f"Ошибка при обновлении схемы базы данных: {str(e)}")
+    finally:
+        conn.close()
+
+# Обработчик на старте бота для обновления базы данных
+@dp.message_handler(commands=['start'])
+async def on_start(message: types.Message):
+    # Обновляем схему базы данных
+    await update_database_schema()
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    # Проверяем, зарегистрирован ли пользователь
+    cursor.execute("SELECT role FROM users WHERE user_id = ?", (message.from_user.id,))
+    user_role = cursor.fetchone()
+    
+    if user_role:
+        # Пользователь уже зарегистрирован, отправляем клавиатуру в зависимости от роли
+        if user_role[0] == 1:  # Редактор
+            await message.answer(f"Привет! Вы вошли как администратор.", reply_markup=get_editor_keyboard())
+        else:  # Просмотрщик
+            await message.answer(f"Привет! Вы вошли как пользователь.", reply_markup=get_viewer_keyboard())
+    else:
+        # Пользователь не зарегистрирован, показываем сообщение
+        await message.answer("Вы не зарегистрированы в системе. Обратитесь к администратору.")
+    
+    conn.close()
 
 # Обработчик для просмотра истории рейсов
 @dp.message_handler(lambda message: message.text == "🗂️ История рейсов")
@@ -446,7 +1197,8 @@ async def view_trips_history(message: types.Message):
         InlineKeyboardButton("За последние 7 дней", callback_data="history_7days"),
         InlineKeyboardButton("За последние 30 дней", callback_data="history_30days"),
         InlineKeyboardButton("За все время", callback_data="history_all"),
-        InlineKeyboardButton("Экспорт в CSV", callback_data="history_export")
+        InlineKeyboardButton("Экспорт в CSV", callback_data="history_export"),
+        InlineKeyboardButton("Назад", callback_data="trip_cancel")
     )
     
     await message.answer("Выберите период для просмотра:", reply_markup=keyboard)
@@ -468,7 +1220,7 @@ async def process_history_selection(callback_query: types.CallbackQuery):
     query = """
     SELECT t.id, d.name, v.truck_number, v.trailer_number,
            t.loading_city, t.unloading_city, t.distance,
-           t.total_payment, t.created_at
+           t.total_payment, t.created_at, t.trip_1c_number
     FROM trips t
     JOIN drivers d ON t.driver_id = d.id
     JOIN vehicles v ON t.vehicle_id = v.id
@@ -500,11 +1252,12 @@ async def process_history_selection(callback_query: types.CallbackQuery):
     text = f"📋 История рейсов {get_period_name(period)}:\n\n"
     
     for trip in trips:
-        trip_id, driver, truck, trailer, load_city, unload_city, distance, payment, date = trip
+        trip_id, driver, truck, trailer, load_city, unload_city, distance, payment, date, trip_1c_number = trip
         text += (
             f"🔹 Рейс #{trip_id} ({date.split(' ')[0]})\n"
             f"👤 Водитель: {driver}\n"
             f"🚛 ТС: {truck}/{trailer}\n"
+            f"📝 Номер из 1С: {trip_1c_number or 'Не указан'}\n"
             f"🗺️ Маршрут: {load_city} → {unload_city} ({distance} км)\n"
             f"💰 Оплата: {payment} руб.\n\n"
         )
@@ -540,7 +1293,7 @@ async def export_history(callback_query):
         # Получаем все рейсы
         cursor.execute("""
         SELECT t.id, d.name, v.truck_number, v.trailer_number,
-               t.loading_city, t.unloading_city, t.distance,
+               t.trip_1c_number, t.loading_city, t.unloading_city, t.distance,
                t.side_loading_count, t.roof_loading_count,
                t.total_payment, t.created_at
         FROM trips t
@@ -565,7 +1318,7 @@ async def export_history(callback_query):
         
         # Заголовки
         writer.writerow([
-            "ID", "Водитель", "Тягач", "Прицеп", "Город погрузки", 
+            "ID", "Водитель", "Тягач", "Прицеп", "Номер из 1С", "Город погрузки", 
             "Город разгрузки", "Расстояние (км)", "Боковой тент", 
             "Крыша", "Сумма (руб)", "Дата"
         ])
@@ -597,7 +1350,21 @@ async def export_history(callback_query):
     finally:
         conn.close()
 
-# Обработчик добавления простоя к существующему рейсу
+# Обновление клавиатуры главного меню с добавлением кнопки редактирования
+def get_editor_keyboard():
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    keyboard.add(
+        types.KeyboardButton("➕ Добавить рейс"),
+        types.KeyboardButton("✏️ Редактировать рейс"),
+        types.KeyboardButton("⏱️ Добавить простой"),
+        types.KeyboardButton("🗂️ История рейсов"),
+        types.KeyboardButton("🔍 Найти рейс"),
+        types.KeyboardButton("📊 Статистика водителей"),
+        types.KeyboardButton("🚛 Управление")
+    )
+    return keyboard
+
+# Обработчик для добавления простоя к существующему рейсу
 @dp.message_handler(lambda message: message.text == "⏱️ Добавить простой")
 async def add_downtime(message: types.Message):
     conn = sqlite3.connect('salary_bot.db')
@@ -673,7 +1440,8 @@ async def process_trip_id_for_downtime(message: types.Message, state: FSMContext
     keyboard = InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         InlineKeyboardButton("Регулярный простой", callback_data="downtime_regular"),
-        InlineKeyboardButton("Вынужденный простой", callback_data="downtime_forced")
+        InlineKeyboardButton("Вынужденный простой", callback_data="downtime_forced"),
+        InlineKeyboardButton("❌ Отмена", callback_data="trip_cancel")
     )
     
     await message.answer(
@@ -702,7 +1470,8 @@ async def process_downtime_type(callback_query: types.CallbackQuery, state: FSMC
     await bot.edit_message_text(
         chat_id=callback_query.message.chat.id,
         message_id=callback_query.message.message_id,
-        text=f"Выбран {data['trip_info']}\nТип простоя: {data['downtime_name']}\n\nВведите количество часов простоя:"
+        text=f"Выбран {data['trip_info']}\nТип простоя: {data['downtime_name']}\n\nВведите количество часов простоя:",
+        reply_markup=get_navigation_keyboard()
     )
     
     await DowntimeStates.waiting_for_hours.set()
@@ -733,6 +1502,15 @@ async def process_downtime_hours(message: types.Message, state: FSMContext):
         payment=payment
     )
     
+    # Удаляем предыдущее сообщение с кнопками навигации
+    async for msg in message.chat.history(limit=10):
+        if msg.from_user.is_bot and "Введите количество часов простоя" in msg.text:
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                break
+            except:
+                pass
+    
     # Формируем сообщение для подтверждения
     summary = (
         f"📋 Информация о простое:\n\n"
@@ -744,7 +1522,9 @@ async def process_downtime_hours(message: types.Message, state: FSMContext):
         f"Данные верны? Введите 'Да' для сохранения или любой другой текст для отмены."
     )
     
-    await message.answer(summary)
+    # Отправляем с кнопками навигации
+    keyboard = get_navigation_keyboard()
+    await message.answer(summary, reply_markup=keyboard)
     await DowntimeStates.waiting_for_confirmation.set()
 
 # Обработчик подтверждения добавления простоя
@@ -856,7 +1636,7 @@ async def view_trip_by_id(message: types.Message):
     SELECT t.id, d.name, v.truck_number, v.trailer_number,
            t.loading_city, t.unloading_city, t.distance,
            t.side_loading_count, t.roof_loading_count,
-           t.total_payment, t.created_at
+           t.total_payment, t.created_at, t.trip_1c_number
     FROM trips t
     JOIN drivers d ON t.driver_id = d.id
     JOIN vehicles v ON t.vehicle_id = v.id
@@ -881,13 +1661,14 @@ async def view_trip_by_id(message: types.Message):
     downtimes = cursor.fetchall()
     
     # Формируем текст сообщения
-    trip_id, driver, truck, trailer, load_city, unload_city, distance, side_loading, roof_loading, payment, date = trip
+    trip_id, driver, truck, trailer, load_city, unload_city, distance, side_loading, roof_loading, payment, date, trip_1c_number = trip
     
     text = (
         f"📋 Информация о рейсе #{trip_id}\n\n"
         f"📅 Дата: {date.split(' ')[0]}\n"
         f"👤 Водитель: {driver}\n"
         f"🚛 Автопоезд: {truck} / {trailer}\n"
+        f"📝 Номер рейса из 1С: {trip_1c_number or 'Не указан'}\n"
         f"🗺️ Маршрут: {load_city} → {unload_city}\n"
         f"📏 Расстояние: {distance} км\n"
         f"🔄 Загрузки: {side_loading} боковых, {roof_loading} через крышу\n"
@@ -905,7 +1686,7 @@ async def view_trip_by_id(message: types.Message):
     conn.close()
 
 # Обработчик поиска по тексту
-@dp.message_handler(lambda message: message.text not in ["➕ Добавить рейс", "🗂️ История рейсов", "⏱️ Добавить простой", "🔍 Найти рейс", "🚛 Управление"])
+@dp.message_handler(lambda message: message.text not in ["➕ Добавить рейс", "✏️ Редактировать рейс", "🗂️ История рейсов", "⏱️ Добавить простой", "🔍 Найти рейс", "🚛 Управление", "📊 Статистика водителей"])
 async def search_trips(message: types.Message):
     search_text = message.text.strip().lower()
     
@@ -924,9 +1705,9 @@ async def search_trips(message: types.Message):
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
     
-    # Поиск по имени водителя, городам и номерам ТС
+    # Поиск по имени водителя, городам, номерам ТС и номеру из 1С
     cursor.execute("""
-    SELECT t.id, d.name, t.loading_city, t.unloading_city, t.created_at
+    SELECT t.id, d.name, t.loading_city, t.unloading_city, t.created_at, t.trip_1c_number
     FROM trips t
     JOIN drivers d ON t.driver_id = d.id
     JOIN vehicles v ON t.vehicle_id = v.id
@@ -935,10 +1716,11 @@ async def search_trips(message: types.Message):
         LOWER(t.loading_city) LIKE ? OR
         LOWER(t.unloading_city) LIKE ? OR
         LOWER(v.truck_number) LIKE ? OR
-        LOWER(v.trailer_number) LIKE ?
+        LOWER(v.trailer_number) LIKE ? OR
+        LOWER(t.trip_1c_number) LIKE ?
     ORDER BY t.created_at DESC
     LIMIT 10
-    """, (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%"))
+    """, (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%"))
     
     trips = cursor.fetchall()
     
@@ -950,9 +1732,10 @@ async def search_trips(message: types.Message):
     # Создаем клавиатуру с результатами поиска
     keyboard = InlineKeyboardMarkup(row_width=1)
     
-    for trip_id, driver, loading, unloading, date in trips:
+    for trip_id, driver, loading, unloading, date, trip_1c_number in trips:
         date_short = date.split(" ")[0]
-        btn_text = f"#{trip_id}: {driver}, {loading}-{unloading} ({date_short})"
+        trip_1c_info = f", 1С:{trip_1c_number}" if trip_1c_number else ""
+        btn_text = f"#{trip_id}: {driver}, {loading}-{unloading}{trip_1c_info} ({date_short})"
         keyboard.add(InlineKeyboardButton(btn_text, callback_data=f"view_trip_{trip_id}"))
     
     await message.answer(
