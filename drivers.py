@@ -97,14 +97,20 @@ async def back_button_handler(message: types.Message, state: FSMContext):
     if current_state:
         await state.finish()
     
-    from bot import get_editor_keyboard, get_viewer_keyboard
+    from bot import get_editor_keyboard, get_viewer_keyboard, get_admin_keyboard
     
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
     
-    if await check_user_access(cursor, message.from_user.id, required_role=1):
+    # Проверяем роль пользователя
+    cursor.execute("SELECT role FROM users WHERE user_id = ?", (message.from_user.id,))
+    user_role = cursor.fetchone()
+    
+    if user_role and user_role[0] == 0:  # Администратор
+        await message.answer("Действие отменено. Возврат в главное меню.", reply_markup=get_admin_keyboard())
+    elif await check_user_access(cursor, message.from_user.id, required_role=1):  # Редактор
         await message.answer("Действие отменено. Возврат в главное меню.", reply_markup=get_editor_keyboard())
-    else:
+    else:  # Просмотрщик
         await message.answer("Действие отменено. Возврат в главное меню.", reply_markup=get_viewer_keyboard())
     
     conn.close()
