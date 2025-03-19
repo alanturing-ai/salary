@@ -25,6 +25,7 @@ def get_editor_keyboard():
     keyboard.add(types.KeyboardButton("➕ Добавить рейс"))
     keyboard.add(types.KeyboardButton("🗂️ История рейсов"))
     keyboard.add(types.KeyboardButton("🚛 Управление"))
+    keyboard.add(types.KeyboardButton("📊 Актуальные данные"))  # Добавлена кнопка
     return keyboard
 
 def get_viewer_keyboard():
@@ -38,6 +39,7 @@ def get_admin_keyboard():
     keyboard.add(types.KeyboardButton("🗂️ История рейсов"))
     keyboard.add(types.KeyboardButton("🚛 Управление"))
     keyboard.add(types.KeyboardButton("👥 Управление пользователями"))
+    keyboard.add(types.KeyboardButton("📊 Актуальные данные"))  # Добавлена кнопка
     return keyboard
 
 # Проверка роли пользователя
