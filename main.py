@@ -6,11 +6,11 @@ from aiogram.utils.exceptions import TelegramAPIError
 from bot import dp, bot, init_db
 
 # Импортируем все обработчики
+import salaries
 import admin
 import drivers
 import vehicles
 import trips
-import salaries
 
 # Настраиваем логирование (подробнее для отладки)
 logging.basicConfig(
