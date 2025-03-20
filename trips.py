@@ -313,36 +313,7 @@ async def process_navigation(callback_query: types.CallbackQuery, state: FSMCont
             
             await TripStates.waiting_for_forced_downtime.set()
         
-        # Аналогично для состояний редактирования рейса
-        elif current_state.startswith("EditTripStates:"):
-            await state.finish()
-            await bot.edit_message_text(
-                chat_id=callback_query.message.chat.id,
-                message_id=callback_query.message.message_id,
-                text="Редактирование отменено. Возврат в главное меню.",
-                reply_markup=None
-            )
-            
-            # Отправляем клавиатуру в зависимости от роли
-            conn = sqlite3.connect('salary_bot.db')
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT role FROM users WHERE user_id = ?", (callback_query.from_user.id,))
-            user_role = cursor.fetchone()
-            conn.close()
-            
-            if user_role and user_role[0] == 1:
-                await bot.send_message(
-                    callback_query.message.chat.id,
-                    "Главное меню:",
-                    reply_markup=get_editor_keyboard()
-                )
-            else:
-                await bot.send_message(
-                    callback_query.message.chat.id,
-                    "Главное меню:",
-                    reply_markup=get_viewer_keyboard()
-                )
+
 
 # Обработчик выбора водителя
 @dp.callback_query_handler(lambda c: c.data.startswith('driver_'), state=TripStates.waiting_for_driver)
