@@ -120,60 +120,50 @@ async def add_trip(message: types.Message):
 @dp.callback_query_handler(lambda c: c.data in ["trip_back", "trip_cancel"], state="*")
 async def process_navigation(callback_query: types.CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
-
-if user_role and user_role[0] == 0:  # Администратор
-        await bot.send_message(
-            callback_query.message.chat.id,
-            "Главное меню:",
-            reply_markup=get_admin_keyboard()
+    
+    # Проверяем роль пользователя и показываем соответствующую клавиатуру
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT role FROM users WHERE user_id = ?", (callback_query.from_user.id,))
+    user_role = cursor.fetchone()
+    
+    if callback_query.data == "trip_cancel":
+        # Отмена и возврат в главное меню
+        await state.finish()
+        await bot.edit_message_text(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            text="Действие отменено. Возврат в главное меню.",
+            reply_markup=None
         )
-    elif user_role and user_role[0] == 1:  # Редактор
-        await bot.send_message(
-            callback_query.message.chat.id,
-            "Главное меню:",
-            reply_markup=get_editor_keyboard()
-        )
-    else:  # Просмотрщик
-        await bot.send_message(
-            callback_query.message.chat.id,
-            "Главное меню:", 
-            reply_markup=get_viewer_keyboard()
-        )
-        
-        if callback_query.data == "trip_cancel":
-            # Отмена и возврат в главное меню
-            await state.finish()
-            await bot.edit_message_text(
-                chat_id=callback_query.message.chat.id,
-                message_id=callback_query.message.message_id,
-                text="Действие отменено. Возврат в главное меню.",
-                reply_markup=None
-            )
         
         # Определяем, какую клавиатуру показать
-        conn = sqlite3.connect('salary_bot.db')
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT role FROM users WHERE user_id = ?", (callback_query.from_user.id,))
-        user_role = cursor.fetchone()
-        conn.close()
-        
-        if user_role and user_role[0] == 1:
+        if user_role and user_role[0] == 0:  # Администратор
+            await bot.send_message(
+                callback_query.message.chat.id,
+                "Главное меню:",
+                reply_markup=get_admin_keyboard()
+            )
+        elif user_role and user_role[0] == 1:  # Редактор
             await bot.send_message(
                 callback_query.message.chat.id,
                 "Главное меню:",
                 reply_markup=get_editor_keyboard()
             )
-        else:
+        else:  # Просмотрщик
             await bot.send_message(
                 callback_query.message.chat.id,
-                "Главное меню:",
+                "Главное меню:", 
                 reply_markup=get_viewer_keyboard()
             )
         
+        conn.close()
         return
     
     elif callback_query.data == "trip_back":
+        
+    conn.close()
         # Возврат на предыдущий шаг
         if current_state == "TripStates:waiting_for_vehicle":
             # Возврат к выбору водителя
