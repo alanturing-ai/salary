@@ -1230,33 +1230,33 @@ async def history_back_to_menu(callback_query: types.CallbackQuery):
         reply_markup=None
     )
     
-   # Определяем роль пользователя
-conn = sqlite3.connect('salary_bot.db')
-cursor = conn.cursor()
-
-cursor.execute("SELECT role FROM users WHERE user_id = ?", (callback_query.from_user.id,))
-user_role = cursor.fetchone()
-conn.close()
-
-# Проверяем роль и показываем соответствующую клавиатуру
-if user_role and user_role[0] == 0:  # Если роль = 0 (Администратор)
-    await bot.send_message(
-        callback_query.message.chat.id,
-        "Главное меню:",
-        reply_markup=get_admin_keyboard()  # Используем клавиатуру администратора
-    )
-elif user_role and user_role[0] == 1:  # Если роль = 1 (Редактор)
-    await bot.send_message(
-        callback_query.message.chat.id,
-        "Главное меню:",
-        reply_markup=get_editor_keyboard()  # Используем клавиатуру редактора
-    )
-else:  # В остальных случаях (Просмотрщик)
-    await bot.send_message(
-        callback_query.message.chat.id,
-        "Главное меню:",
-        reply_markup=get_viewer_keyboard()  # Используем клавиатуру просмотрщика
-    )
+    # Определяем роль пользователя
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT role FROM users WHERE user_id = ?", (callback_query.from_user.id,))
+    user_role = cursor.fetchone()
+    conn.close()
+    
+    # Проверяем роль и показываем соответствующую клавиатуру
+    if user_role and user_role[0] == 0:  # Если роль = 0 (Администратор)
+        await bot.send_message(
+            callback_query.message.chat.id,
+            "Главное меню:",
+            reply_markup=get_admin_keyboard()  # Используем клавиатуру администратора
+        )
+    elif user_role and user_role[0] == 1:  # Если роль = 1 (Редактор)
+        await bot.send_message(
+            callback_query.message.chat.id,
+            "Главное меню:",
+            reply_markup=get_editor_keyboard()  # Используем клавиатуру редактора
+        )
+    else:  # В остальных случаях (Просмотрщик)
+        await bot.send_message(
+            callback_query.message.chat.id,
+            "Главное меню:",
+            reply_markup=get_viewer_keyboard()  # Используем клавиатуру просмотрщика
+        )
     
     # Формируем сообщение с историей
     text = f"📋 История рейсов {get_period_name(period)}:\n\n"
