@@ -121,7 +121,7 @@ async def add_trip(message: types.Message):
 async def process_navigation(callback_query: types.CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
 
-        if user_role and user_role[0] == 0:  # Администратор
+if user_role and user_role[0] == 0:  # Администратор
         await bot.send_message(
             callback_query.message.chat.id,
             "Главное меню:",
