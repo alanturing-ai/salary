@@ -162,9 +162,6 @@ async def process_navigation(callback_query: types.CallbackQuery, state: FSMCont
         return
     
     elif callback_query.data == "trip_back":
-        pass  # Добавьте эту строку с отступом!
-        
-    conn.close()
         # Возврат на предыдущий шаг
         if current_state == "TripStates:waiting_for_vehicle":
             # Возврат к выбору водителя
@@ -322,9 +319,9 @@ async def process_navigation(callback_query: types.CallbackQuery, state: FSMCont
             )
             
             await TripStates.waiting_for_forced_downtime.set()
+    
+    conn.close()
         
-
-
 # Обработчик выбора водителя
 @dp.callback_query_handler(lambda c: c.data.startswith('driver_'), state=TripStates.waiting_for_driver)
 async def process_driver_selection(callback_query: types.CallbackQuery, state: FSMContext):
