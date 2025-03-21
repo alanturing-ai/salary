@@ -162,6 +162,7 @@ async def process_navigation(callback_query: types.CallbackQuery, state: FSMCont
         return
     
     elif callback_query.data == "trip_back":
+        pass  # Добавьте эту строку с отступом!
         
     conn.close()
         # Возврат на предыдущий шаг
