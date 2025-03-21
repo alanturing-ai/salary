@@ -120,6 +120,25 @@ async def add_trip(message: types.Message):
 @dp.callback_query_handler(lambda c: c.data in ["trip_back", "trip_cancel"], state="*")
 async def process_navigation(callback_query: types.CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
+
+    if user_role and user_role[0] == 0:  # Администратор
+    await bot.send_message(
+        callback_query.message.chat.id,
+        "Главное меню:",
+        reply_markup=get_admin_keyboard()
+    )
+elif user_role and user_role[0] == 1:  # Редактор
+    await bot.send_message(
+        callback_query.message.chat.id,
+        "Главное меню:",
+        reply_markup=get_editor_keyboard()
+    )
+else:  # Просмотрщик
+    await bot.send_message(
+        callback_query.message.chat.id,
+        "Главное меню:", 
+        reply_markup=get_viewer_keyboard()
+    )
     
     if callback_query.data == "trip_cancel":
         # Отмена и возврат в главное меню
