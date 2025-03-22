@@ -22,28 +22,22 @@ dp.middleware.setup(LoggingMiddleware())
 # Клавиатуры для ролей
 def get_editor_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(types.KeyboardButton("➕ Добавить рейс"))
-    keyboard.add(types.KeyboardButton("🗂️ История рейсов"))
+    keyboard.add(types.KeyboardButton("🚚 Рейсы"))  # Одна кнопка вместо нескольких
     keyboard.add(types.KeyboardButton("🚛 Управление"))
     keyboard.add(types.KeyboardButton("📊 Актуальные данные"))
-    keyboard.add(types.KeyboardButton("🔍 Найти рейс"))
     return keyboard
 
 def get_viewer_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(types.KeyboardButton("🗂️ История рейсов"))
-    keyboard.add(types.KeyboardButton("🔍 Найти рейс"))
     keyboard.add(types.KeyboardButton("📊 Актуальные данные"))
     return keyboard
 
 def get_admin_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(types.KeyboardButton("➕ Добавить рейс"))
-    keyboard.add(types.KeyboardButton("🗂️ История рейсов"))
+    keyboard.add(types.KeyboardButton("🚚 Рейсы"))  # Одна кнопка вместо нескольких
     keyboard.add(types.KeyboardButton("🚛 Управление"))
-    keyboard.add(types.KeyboardButton("👥 Управление пользователями"))
     keyboard.add(types.KeyboardButton("📊 Актуальные данные"))
-    keyboard.add(types.KeyboardButton("🔍 Найти рейс"))
+    keyboard.add(types.KeyboardButton("👥 Управление пользователями"))
     return keyboard
 
 # Проверка роли пользователя
