@@ -422,17 +422,7 @@ async def process_trip_1c_number(message: types.Message, state: FSMContext):
     
     await state.update_data(trip_1c_number=trip_1c_number)
     
-    # Удаляем предыдущее сообщение с кнопками навигации
-    # Находим последнее сообщение бота
-    # async for msg in message.chat.history(limit=10):
-    #    if msg.from_user.is_bot and "Введите номер рейса из 1С" in msg.text:
-    #        try:
-    #           await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-     #           break
-      #      except:
-     #           pass
-    
-    # Отправляем новое сообщение с кнопками навигации
+        # Отправляем новое сообщение с кнопками навигации
     keyboard = get_navigation_keyboard()
     sent_message = await message.answer(f"Номер рейса из 1С: {trip_1c_number}\nВведите город погрузки:", reply_markup=keyboard)
     
@@ -448,15 +438,6 @@ async def process_loading_city(message: types.Message, state: FSMContext):
         return
     
     await state.update_data(loading_city=loading_city)
-    
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите город погрузки" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
     
     # Отправляем новое сообщение с кнопками навигации
     keyboard = get_navigation_keyboard()
@@ -474,16 +455,7 @@ async def process_unloading_city(message: types.Message, state: FSMContext):
         return
     
     await state.update_data(unloading_city=unloading_city)
-    
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите город разгрузки" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
-    
+        
     # Отправляем новое сообщение с кнопками навигации
     keyboard = get_navigation_keyboard()
     await message.answer(f"Город разгрузки: {unloading_city}\nВведите расстояние в километрах (только число):", reply_markup=keyboard)
@@ -507,15 +479,6 @@ async def process_distance(message: types.Message, state: FSMContext):
     
     await state.update_data(distance=distance)
     
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите расстояние в километрах" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
-    
     # Отправляем новое сообщение с кнопками навигации
     keyboard = get_navigation_keyboard()
     await message.answer(f"Расстояние: {distance} км\nВведите количество боковых загрузок (число от 0):", reply_markup=keyboard)
@@ -537,15 +500,6 @@ async def process_side_loading(message: types.Message, state: FSMContext):
         return
     
     await state.update_data(side_loading=side_loading)
-    
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите количество боковых загрузок" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
     
     # Отправляем новое сообщение с кнопками навигации
     keyboard = get_navigation_keyboard()
@@ -569,15 +523,6 @@ async def process_roof_loading(message: types.Message, state: FSMContext):
     
     await state.update_data(roof_loading=roof_loading)
     
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите количество загрузок через крышу" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
-    
     # Отправляем новое сообщение с кнопками навигации
     keyboard = get_navigation_keyboard()
     await message.answer(f"Загрузок через крышу: {roof_loading}\nВведите часы регулярного простоя (число от 0):", reply_markup=keyboard)
@@ -599,15 +544,6 @@ async def process_regular_downtime(message: types.Message, state: FSMContext):
         return
     
     await state.update_data(regular_downtime=regular_downtime)
-    
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите часы регулярного простоя" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
     
     # Отправляем новое сообщение с кнопками навигации
     keyboard = get_navigation_keyboard()
@@ -663,15 +599,6 @@ async def process_forced_downtime(message: types.Message, state: FSMContext):
         total_payment=payment_data['total']
     )
     
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите часы вынужденного простоя" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
-    
     # Формируем сообщение с итоговой информацией
     data = await state.get_data()  # Обновляем данные после добавления платежной информации
     summary = (
@@ -704,15 +631,6 @@ async def confirm_trip(message: types.Message, state: FSMContext):
     
     # Получаем все введенные данные
     data = await state.get_data()
-    
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Информация о рейсе" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
     
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
@@ -958,15 +876,6 @@ async def process_edit_new_value(message: types.Message, state: FSMContext):
     
     # Сохраняем новое значение в состоянии
     await state.update_data(new_value=new_value)
-    
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите новое значение для поля" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
     
     # Получаем информацию о рейсе для подтверждения
     conn = sqlite3.connect('salary_bot.db')
@@ -1529,15 +1438,6 @@ async def process_downtime_hours(message: types.Message, state: FSMContext):
         hours=hours,
         payment=payment
     )
-    
-    # Удаляем предыдущее сообщение с кнопками навигации
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите количество часов простоя" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
     
     # Формируем сообщение для подтверждения
     summary = (
