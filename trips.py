@@ -424,13 +424,13 @@ async def process_trip_1c_number(message: types.Message, state: FSMContext):
     
     # Удаляем предыдущее сообщение с кнопками навигации
     # Находим последнее сообщение бота
-    async for msg in message.chat.history(limit=10):
-        if msg.from_user.is_bot and "Введите номер рейса из 1С" in msg.text:
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
-                break
-            except:
-                pass
+    # async for msg in message.chat.history(limit=10):
+    #    if msg.from_user.is_bot and "Введите номер рейса из 1С" in msg.text:
+    #        try:
+    #           await bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+     #           break
+      #      except:
+     #           pass
     
     # Отправляем новое сообщение с кнопками навигации
     keyboard = get_navigation_keyboard()
