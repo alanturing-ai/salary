@@ -667,7 +667,7 @@ async def process_forced_downtime(message: types.Message, state: FSMContext):
 @dp.message_handler(state=TripStates.waiting_for_confirmation)
 async def confirm_trip(message: types.Message, state: FSMContext):
     if message.text.lower() not in ["да", "сохранить", "+"]:
-        await message.answer("Отменено. Данные не сохранены.", reply_markup=get_editor_keyboard())
+        await message.answer("Отменено. Данные не сохранены.", reply_markup=get_trips_menu())
         await state.finish()
         return
     
@@ -747,20 +747,20 @@ async def confirm_trip(message: types.Message, state: FSMContext):
             f"№ рейса: {trip_id}\n"
             f"Номер из 1С: {data.get('trip_1c_number', 'Не указан')}\n"
             f"Итоговая сумма: {data.get('total_payment')} руб.",
-            reply_markup=get_editor_keyboard()
+            reply_markup=get_trips_menu()  # Заменяем на меню рейсов
         )
     
     except Exception as e:
         conn.rollback()
         await message.answer(
             f"❌ Ошибка при сохранении рейса: {str(e)}",
-            reply_markup=get_editor_keyboard()
+            reply_markup=get_trips_menu()  # Заменяем на меню рейсов
         )
     
     finally:
         conn.close()
         await state.finish()
-
+        
 # Обработчик для редактирования рейса
 @dp.message_handler(lambda message: message.text == "✏️ Редактировать рейс")
 async def edit_trip(message: types.Message):
@@ -1055,25 +1055,25 @@ async def confirm_edit_trip(message: types.Message, state: FSMContext):
         
         conn.commit()
         
-        await message.answer(
+       await message.answer(
             f"✅ Рейс успешно отредактирован!\n"
             f"Рейс #{data['trip_id']}\n"
             f"Поле: {data['field']}\n"
             f"Новое значение: {data['new_value']}",
-            reply_markup=get_editor_keyboard()
+            reply_markup=get_trips_menu()  # Заменяем на меню рейсов
         )
     
     except Exception as e:
         conn.rollback()
         await message.answer(
             f"❌ Ошибка при редактировании рейса: {str(e)}",
-            reply_markup=get_editor_keyboard()
+            reply_markup=get_trips_menu()  # Заменяем на меню рейсов
         )
     
     finally:
         conn.close()
         await state.finish()
-
+        
 # Функция для обновления схемы базы данных (добавление колонки trip_1c_number)
 async def update_database_schema():
     conn = sqlite3.connect('salary_bot.db')
@@ -1543,20 +1543,20 @@ async def confirm_downtime(message: types.Message, state: FSMContext):
         
         conn.commit()
         
-        await message.answer(
+       await message.answer(
             f"✅ Простой успешно добавлен!\n"
             f"Рейс #{data['trip_id']}\n"
             f"Тип: {data['downtime_name']}\n"
             f"Часы: {data['hours']}\n"
             f"Оплата: {data['payment']} руб.",
-            reply_markup=get_editor_keyboard()
+            reply_markup=get_trips_menu()  # Заменяем на меню рейсов
         )
     
     except Exception as e:
         conn.rollback()
         await message.answer(
             f"❌ Ошибка при добавлении простоя: {str(e)}",
-            reply_markup=get_editor_keyboard()
+            reply_markup=get_trips_menu()  # Заменяем на меню рейсов
         )
     
     finally:
