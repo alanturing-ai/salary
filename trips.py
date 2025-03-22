@@ -963,7 +963,7 @@ async def process_edit_new_value(message: types.Message, state: FSMContext):
 @dp.message_handler(state=EditTripStates.waiting_for_confirmation)
 async def confirm_edit_trip(message: types.Message, state: FSMContext):
     if message.text.lower() not in ["да", "сохранить", "+"]:
-        await message.answer("Отменено. Данные не изменены.", reply_markup=get_editor_keyboard())
+        await message.answer("Отменено. Данные не изменены.", reply_markup=get_trips_menu())
         await state.finish()
         return
     
@@ -1055,7 +1055,7 @@ async def confirm_edit_trip(message: types.Message, state: FSMContext):
         
         conn.commit()
         
-    await message.answer(
+        await message.answer(
             f"✅ Рейс успешно отредактирован!\n"
             f"Рейс #{data['trip_id']}\n"
             f"Поле: {data['field']}\n"
