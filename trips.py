@@ -1055,7 +1055,7 @@ async def confirm_edit_trip(message: types.Message, state: FSMContext):
         
         conn.commit()
         
-       await message.answer(
+    await message.answer(
             f"✅ Рейс успешно отредактирован!\n"
             f"Рейс #{data['trip_id']}\n"
             f"Поле: {data['field']}\n"
