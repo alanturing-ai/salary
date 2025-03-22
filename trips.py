@@ -1827,29 +1827,30 @@ async def driver_statistics(message: types.Message):
     await message.answer(text)
     conn.close()
 
-# Общий обработчик для всех сообщений
 @dp.message_handler(state="*")
 async def general_message_handler(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
     logging.info(f"Получено сообщение: '{message.text}' в состоянии {current_state}")
-    # Если мы в одном из состояний ожидания числовых значений
-if current_state in [
-    "TripStates:waiting_for_distance", 
-    "TripStates:waiting_for_side_loading",
-    "TripStates:waiting_for_roof_loading",
-    "TripStates:waiting_for_regular_downtime",
-    "TripStates:waiting_for_forced_downtime"
-]:
-    logging.info(f"Перенаправляем числовое значение '{message.text}' в соответствующий обработчик")
     
-    # Вручную направляем сообщение в нужный обработчик
-    if current_state == "TripStates:waiting_for_distance":
-        await process_distance(message, state)
-    elif current_state == "TripStates:waiting_for_side_loading":
-        await process_side_loading(message, state)
-    elif current_state == "TripStates:waiting_for_roof_loading":
-        await process_roof_loading(message, state)
-    elif current_state == "TripStates:waiting_for_regular_downtime":
-        await process_regular_downtime(message, state)
-    elif current_state == "TripStates:waiting_for_forced_downtime":
-        await process_forced_downtime(message, state)
+    # Если мы в одном из состояний ожидания числовых значений
+    if current_state in [
+        "TripStates:waiting_for_distance",
+        "TripStates:waiting_for_side_loading",
+        "TripStates:waiting_for_roof_loading",
+        "TripStates:waiting_for_regular_downtime",
+        "TripStates:waiting_for_forced_downtime"
+    ]:
+        logging.info(f"Перенаправляем числовое значение '{message.text}' в соответствующий обработчик")
+        
+        # Вручную направляем сообщение в нужный обработчик
+        if current_state == "TripStates:waiting_for_distance":
+            await process_distance(message, state)
+        elif current_state == "TripStates:waiting_for_side_loading":
+            await process_side_loading(message, state)
+        elif current_state == "TripStates:waiting_for_roof_loading":
+            await process_roof_loading(message, state)
+        elif current_state == "TripStates:waiting_for_regular_downtime":
+            await process_regular_downtime(message, state)
+        elif current_state == "TripStates:waiting_for_forced_downtime":
+            await process_forced_downtime(message, state)
+            
