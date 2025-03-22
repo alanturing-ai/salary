@@ -1501,7 +1501,7 @@ async def process_downtime_hours(message: types.Message, state: FSMContext):
 @dp.message_handler(state=DowntimeStates.waiting_for_confirmation)
 async def confirm_downtime(message: types.Message, state: FSMContext):
     if message.text.lower() not in ["да", "сохранить", "+"]:
-        await message.answer("Отменено. Данные не сохранены.", reply_markup=get_editor_keyboard())
+        await message.answer("Отменено. Данные не сохранены.", reply_markup=get_trips_menu())
         await state.finish()
         return
     
@@ -1543,20 +1543,20 @@ async def confirm_downtime(message: types.Message, state: FSMContext):
         
         conn.commit()
         
-    await message.answer(
+        await message.answer(
             f"✅ Простой успешно добавлен!\n"
             f"Рейс #{data['trip_id']}\n"
             f"Тип: {data['downtime_name']}\n"
             f"Часы: {data['hours']}\n"
             f"Оплата: {data['payment']} руб.",
-            reply_markup=get_trips_menu()  # Заменяем на меню рейсов
+            reply_markup=get_trips_menu()
         )
     
     except Exception as e:
         conn.rollback()
         await message.answer(
             f"❌ Ошибка при добавлении простоя: {str(e)}",
-            reply_markup=get_trips_menu()  # Заменяем на меню рейсов
+            reply_markup=get_trips_menu()
         )
     
     finally:
