@@ -1827,30 +1827,30 @@ async def driver_statistics(message: types.Message):
     await message.answer(text)
     conn.close()
 
-# Самый последний обработчик для перехвата всех сообщений
+# Универсальный обработчик всех текстовых сообщений
 @dp.message_handler(content_types=types.ContentTypes.TEXT, state="*")
-async def catch_all_handler(message: types.Message, state: FSMContext):
+async def universal_text_handler(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
-    logging.info(f"ПЕРЕХВАТЧИК: Сообщение '{message.text}' в состоянии {current_state}")
+    logging.info(f"УНИВЕРСАЛЬНЫЙ ОБРАБОТЧИК: Сообщение '{message.text}' в состоянии {current_state}")
     
-    try:
-        # Обработка в зависимости от состояния
-        if current_state == "TripStates:waiting_for_trip_1c_number":
-            await process_trip_1c_number(message, state)
-        elif current_state == "TripStates:waiting_for_loading_city":
-            await process_loading_city(message, state)
-        elif current_state == "TripStates:waiting_for_unloading_city":
-            await process_unloading_city(message, state)
-        elif current_state == "TripStates:waiting_for_distance":
-            await process_distance(message, state)
-        elif current_state == "TripStates:waiting_for_side_loading":
-            await process_side_loading(message, state)
-        elif current_state == "TripStates:waiting_for_roof_loading":
-            await process_roof_loading(message, state)
-        elif current_state == "TripStates:waiting_for_regular_downtime":
-            await process_regular_downtime(message, state)
-        elif current_state == "TripStates:waiting_for_forced_downtime":
-            await process_forced_downtime(message, state)
-    except Exception as e:
-        logging.error(f"Ошибка при обработке: {e}")
-        await message.answer(f"Произошла ошибка: {e}")
+    # Словарь соответствия состояний и функций-обработчиков
+    handlers = {
+        "TripStates:waiting_for_trip_1c_number": process_trip_1c_number,
+        "TripStates:waiting_for_loading_city": process_loading_city,
+        "TripStates:waiting_for_unloading_city": process_unloading_city,
+        "TripStates:waiting_for_distance": process_distance,
+        "TripStates:waiting_for_side_loading": process_side_loading,
+        "TripStates:waiting_for_roof_loading": process_roof_loading,
+        "TripStates:waiting_for_regular_downtime": process_regular_downtime,
+        "TripStates:waiting_for_forced_downtime": process_forced_downtime,
+        "TripStates:waiting_for_confirmation": confirm_trip
+    }
+    
+    # Если текущее состояние есть в словаре, вызываем соответствующий обработчик
+    if current_state in handlers:
+        handler = handlers[current_state]
+        try:
+            await handler(message, state)
+        except Exception as e:
+            logging.error(f"Ошибка при обработке сообщения: {e}")
+            await message.answer(f"Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте еще раз.")
