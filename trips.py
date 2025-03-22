@@ -19,6 +19,48 @@ logging.basicConfig(
     ]
 )
 
+# Подменю для работы с рейсами
+def get_trips_menu():
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    keyboard.add(
+        types.KeyboardButton("➕ Добавить рейс"),
+        types.KeyboardButton("✏️ Редактировать рейс")
+    )
+    keyboard.add(
+        types.KeyboardButton("⏱️ Добавить простой"),
+        types.KeyboardButton("🗂️ История рейсов")
+    )
+    keyboard.add(
+        types.KeyboardButton("🔍 Найти рейс"),
+        types.KeyboardButton("📊 Статистика водителей")
+    )
+    keyboard.add(types.KeyboardButton("↩️ Назад в главное меню"))
+    return keyboard
+
+# Обработчик для кнопки "Рейсы"
+@dp.message_handler(lambda message: message.text == "🚚 Рейсы")
+async def show_trips_menu(message: types.Message):
+    await message.answer("Меню работы с рейсами:", reply_markup=get_trips_menu())
+
+# Обработчик для кнопки "Назад в главное меню"
+@dp.message_handler(lambda message: message.text == "↩️ Назад в главное меню")
+async def back_to_main_menu(message: types.Message):
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT role FROM users WHERE user_id = ?", (message.from_user.id,))
+    user_role = cursor.fetchone()
+    conn.close()
+    
+    if user_role and user_role[0] == 0:  # Администратор
+        await message.answer("Главное меню:", reply_markup=get_admin_keyboard())
+    elif user_role and user_role[0] == 1:  # Редактор
+        await message.answer("Главное меню:", reply_markup=get_editor_keyboard())
+    else:  # Просмотрщик
+        await message.answer("Главное меню:", reply_markup=get_viewer_keyboard())
+
+
+
 # Состояния для добавления рейса
 class TripStates(StatesGroup):
     waiting_for_driver = State()
