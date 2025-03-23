@@ -10,6 +10,15 @@ import io
 import csv
 import logging
 
+# Класс состояний для ввода ID рейса, который нужно отметить оплаченным
+class PaymentStates(StatesGroup):
+    waiting_for_trip_id = State()
+
+# Класс состояний для ввода суммы оплаты
+class PaymentAmountStates(StatesGroup):
+    waiting_for_trip_id = State()
+    waiting_for_amount = State()
+
 # Проверяем и обновляем структуру базы данных
 def check_db_structure():
     conn = sqlite3.connect('salary_bot.db')
@@ -973,15 +982,6 @@ async def show_detailed_report(callback_query: types.CallbackQuery):
     
     finally:
         conn.close()
-
-# Класс состояний для ввода ID рейса, который нужно отметить оплаченным
-class PaymentStates(StatesGroup):
-    waiting_for_trip_id = State()
-
-# Класс состояний для ввода суммы оплаты
-class PaymentAmountStates(StatesGroup):
-    waiting_for_trip_id = State()
-    waiting_for_amount = State()
 
 # Обработчик для ручного ввода ID рейса для оплаты
 @dp.message_handler(lambda message: message.text == "✅ Отметить рейс оплаченным")
