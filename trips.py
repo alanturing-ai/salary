@@ -1208,6 +1208,33 @@ async def process_history_selection(callback_query: types.CallbackQuery):
         )
         conn.close()
         return
+        
+    # Формируем сообщение с историей
+    text = f"📋 История рейсов {get_period_name(period)}:\n\n"
+    
+    for trip in trips:
+        trip_id, driver, truck, trailer, load_city, unload_city, distance, payment, date, trip_1c_number = trip
+        text += (
+            f"🔹 Рейс #{trip_id} ({date.split(' ')[0]})\n"
+            f"👤 Водитель: {driver}\n"
+            f"🚛 ТС: {truck}/{trailer}\n"
+            f"📝 Номер из 1С: {trip_1c_number or 'Не указан'}\n"
+            f"🗺️ Маршрут: {load_city} → {unload_city} ({distance} км)\n"
+            f"💰 Оплата: {payment} руб.\n\n"
+        )
+    
+    # Ограничиваем длину сообщения, если оно слишком большое
+    if len(text) > 4096:
+        text = text[:4000] + "...\n\n(Показаны не все рейсы из-за ограничения длины сообщения)"
+    
+    await bot.answer_callback_query(callback_query.id)
+    await bot.edit_message_text(
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id,
+        text=text
+    )
+    
+    conn.close()
 
     # Обработчик для кнопки "Назад" в истории рейсов
 @dp.callback_query_handler(lambda c: c.data == "trip_cancel" and c.message.text and "Выберите период для просмотра" in c.message.text)
