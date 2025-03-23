@@ -897,7 +897,7 @@ async def process_delete_trip(callback_query: types.CallbackQuery, state: FSMCon
     )
 
 # Обработчик для подтверждения удаления рейса
-@dp.callback_query_handler(lambda c: c.data.startswith("confirm_delete_"))
+@dp.callback_query_handler(lambda c: c.data.startswith("confirm_delete_"), state="*")
 async def confirm_delete_trip(callback_query: types.CallbackQuery, state: FSMContext):
     trip_id = int(callback_query.data.split("_")[2])
     
@@ -961,7 +961,7 @@ async def confirm_delete_trip(callback_query: types.CallbackQuery, state: FSMCon
         conn.close()
 
 # Обработчик для отмены удаления рейса
-@dp.callback_query_handler(lambda c: c.data == "cancel_delete")
+@dp.callback_query_handler(lambda c: c.data == "cancel_delete", state="*")
 async def cancel_delete_trip(callback_query: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     trip_id = data.get('trip_id')
