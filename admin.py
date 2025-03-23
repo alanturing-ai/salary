@@ -153,6 +153,45 @@ async def delete_role(message: types.Message, state: FSMContext):
     
     conn.close()
 
+# Обработчик ввода ID пользователя для удаления роли
+@dp.message_handler(state=AdminStates.waiting_for_delete_confirmation)
+async def process_delete_user_id(message: types.Message, state: FSMContext):
+    try:
+        user_id = int(message.text)
+        
+        conn = sqlite3.connect('salary_bot.db')
+        cursor = conn.cursor()
+        
+        # Проверяем, существует ли пользователь
+        cursor.execute("SELECT role FROM users WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            await message.answer("Пользователь с таким ID не найден.", reply_markup=get_admin_keyboard())
+            await state.finish()
+            conn.close()
+            return
+        
+        # Удаляем пользователя
+        cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        
+        # Логируем действие
+        cursor.execute(
+            "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+            (message.from_user.id, "Удаление пользователя", f"Удален пользователь с ID {user_id}")
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        await message.answer(f"✅ Пользователь с ID {user_id} успешно удален.", reply_markup=get_admin_keyboard())
+        
+    except ValueError:
+        await message.answer("Ошибка! Введите числовой ID.")
+    
+    # Сбрасываем состояние в любом случае
+    await state.finish()
+
 # Обработчик кнопки "Список пользователей"
 @dp.message_handler(lambda message: message.text == "📋 Список пользователей")
 async def list_users(message: types.Message, state: FSMContext):
@@ -167,8 +206,22 @@ async def list_users(message: types.Message, state: FSMContext):
         conn.close()
         return
     
-    # Код вывода списка пользователей...
+    # Получаем список пользователей
+    cursor.execute("SELECT user_id, username, role FROM users ORDER BY role")
+    users = cursor.fetchall()
     
+    if not users:
+        await message.answer("Список пользователей пуст.", reply_markup=get_admin_keyboard())
+        conn.close()
+        return
+    
+    text = "📋 Список пользователей:\n\n"
+    
+    for user_id, username, role in users:
+        role_name = "Администратор" if role == 0 else "Редактор" if role == 1 else "Просмотрщик"
+        text += f"ID: {user_id}\nИмя: {username or 'Не указано'}\nРоль: {role_name}\n\n"
+    
+    await message.answer(text, reply_markup=get_admin_keyboard())
     conn.close()
 
 # Обработчик кнопки "Назад" в панели администратора
