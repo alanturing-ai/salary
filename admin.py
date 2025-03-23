@@ -33,6 +33,13 @@ async def cmd_admin(message: types.Message):
     
     conn.close()
 
+@dp.message_handler(commands=['reset'], state="*")
+async def cmd_reset(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state is not None:
+        await state.finish()
+    await message.answer("Состояние сброшено. Используйте /admin для доступа к панели администратора.")
+
 @dp.message_handler(lambda message: message.text == "🔑 Назначить роль")
 async def assign_role(message: types.Message, state: FSMContext):
     # Сначала сбрасываем любое активное состояние
