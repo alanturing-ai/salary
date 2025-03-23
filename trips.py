@@ -869,12 +869,173 @@ async def process_edit_trip_id(message: types.Message, state: FSMContext):
         InlineKeyboardButton("Расстояние", callback_data="edit_distance"),
         InlineKeyboardButton("Боковые загрузки", callback_data="edit_side_loading"),
         InlineKeyboardButton("Загрузки через крышу", callback_data="edit_roof_loading"),
-        InlineKeyboardButton("❌ Отмена", callback_data="trip_cancel")
+        InlineKeyboardButton("🗑️ Удалить рейс", callback_data="delete_trip"),
+        InlineKeyboardButton("↩️ Отмена", callback_data="trip_cancel")
     )
-    
     await message.answer(trip_info, reply_markup=keyboard)
     await EditTripStates.waiting_for_field.set()
     conn.close()
+
+# Обработчик для кнопки удаления рейса
+@dp.callback_query_handler(lambda c: c.data == "delete_trip", state=EditTripStates.waiting_for_field)
+async def process_delete_trip(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    trip_id = data.get('trip_id')
+    
+    # Создаем клавиатуру для подтверждения удаления
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirm_delete_{trip_id}"),
+        InlineKeyboardButton("❌ Нет, отмена", callback_data="cancel_delete")
+    )
+    
+    await bot.edit_message_text(
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id,
+        text=f"Вы действительно хотите удалить рейс #{trip_id}?\nЭто действие нельзя отменить.",
+        reply_markup=keyboard
+    )
+
+# Обработчик для подтверждения удаления рейса
+@dp.callback_query_handler(lambda c: c.data.startswith("confirm_delete_"))
+async def confirm_delete_trip(callback_query: types.CallbackQuery, state: FSMContext):
+    trip_id = int(callback_query.data.split("_")[2])
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Удаляем сначала простои, связанные с рейсом
+        cursor.execute("DELETE FROM downtimes WHERE trip_id = ?", (trip_id,))
+        
+        # Затем удаляем сам рейс
+        cursor.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+        
+        # Логируем действие
+        cursor.execute(
+            "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+            (
+                callback_query.from_user.id, 
+                "Удаление рейса", 
+                f"Рейс #{trip_id} удален"
+            )
+        )
+        
+        conn.commit()
+        
+        await bot.edit_message_text(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            text=f"✅ Рейс #{trip_id} успешно удален.",
+            reply_markup=None
+        )
+        
+        # Возвращаемся в меню рейсов
+        await bot.send_message(
+            callback_query.message.chat.id,
+            "Меню работы с рейсами:",
+            reply_markup=get_trips_menu()
+        )
+        
+        await state.finish()
+        
+    except Exception as e:
+        conn.rollback()
+        await bot.edit_message_text(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            text=f"❌ Ошибка при удалении рейса: {str(e)}",
+            reply_markup=None
+        )
+        
+        # Возвращаемся в меню рейсов
+        await bot.send_message(
+            callback_query.message.chat.id,
+            "Меню работы с рейсами:",
+            reply_markup=get_trips_menu()
+        )
+        
+        await state.finish()
+    
+    finally:
+        conn.close()
+
+# Обработчик для отмены удаления рейса
+@dp.callback_query_handler(lambda c: c.data == "cancel_delete")
+async def cancel_delete_trip(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    trip_id = data.get('trip_id')
+    
+    # Возвращаемся к информации о рейсе
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    # Получаем данные о рейсе для повторного отображения
+    cursor.execute("""
+    SELECT t.id, d.name, v.truck_number, v.trailer_number, 
+           t.trip_1c_number, t.loading_city, t.unloading_city, 
+           t.distance, t.side_loading_count, t.roof_loading_count,
+           t.total_payment
+    FROM trips t
+    JOIN drivers d ON t.driver_id = d.id
+    JOIN vehicles v ON t.vehicle_id = v.id
+    WHERE t.id = ?
+    """, (trip_id,))
+    
+    trip_data = cursor.fetchone()
+    conn.close()
+    
+    if trip_data:
+        # Создаем текст с информацией о рейсе
+        trip_info = (
+            f"📋 Информация о рейсе #{trip_data[0]}:\n\n"
+            f"👤 Водитель: {trip_data[1]}\n"
+            f"🚛 Автопоезд: {trip_data[2]} / {trip_data[3]}\n"
+            f"📝 Номер рейса из 1С: {trip_data[4] or 'Не указан'}\n"
+            f"🏙️ Погрузка: {trip_data[5]}\n"
+            f"🏙️ Разгрузка: {trip_data[6]}\n"
+            f"📏 Расстояние: {trip_data[7]} км\n"
+            f"🔄 Боковые загрузки: {trip_data[8]}\n"
+            f"🔄 Загрузки через крышу: {trip_data[9]}\n"
+            f"💰 Итого: {trip_data[10]} руб.\n\n"
+            f"Выберите, что редактировать:"
+        )
+        
+        # Создаем клавиатуру с полями для редактирования
+        keyboard = InlineKeyboardMarkup(row_width=1)
+        keyboard.add(
+            InlineKeyboardButton("Номер рейса из 1С", callback_data="edit_trip_1c_number"),
+            InlineKeyboardButton("Город погрузки", callback_data="edit_loading_city"),
+            InlineKeyboardButton("Город разгрузки", callback_data="edit_unloading_city"),
+            InlineKeyboardButton("Расстояние", callback_data="edit_distance"),
+            InlineKeyboardButton("Боковые загрузки", callback_data="edit_side_loading"),
+            InlineKeyboardButton("Загрузки через крышу", callback_data="edit_roof_loading"),
+            InlineKeyboardButton("🗑️ Удалить рейс", callback_data="delete_trip"),
+            InlineKeyboardButton("↩️ Отмена", callback_data="trip_cancel")
+        )
+        
+        await bot.edit_message_text(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            text=trip_info,
+            reply_markup=keyboard
+        )
+    else:
+        # Если по какой-то причине рейс не найден
+        await bot.edit_message_text(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            text="Рейс не найден. Возвращаемся в меню рейсов.",
+            reply_markup=None
+        )
+        
+        await bot.send_message(
+            callback_query.message.chat.id,
+            "Меню работы с рейсами:",
+            reply_markup=get_trips_menu()
+        )
+        
+        await state.finish()
 
 # Обработчик выбора поля для редактирования
 @dp.callback_query_handler(lambda c: c.data.startswith('edit_'), state=EditTripStates.waiting_for_field)
