@@ -15,16 +15,25 @@ def check_db_structure():
     conn = sqlite3.connect('salary_bot.db')
     cursor = conn.cursor()
     
-    # Проверяем, есть ли колонка paid в таблице trips
+    # Проверяем существующие колонки в таблице trips
     cursor.execute("PRAGMA table_info(trips)")
     columns = [column[1] for column in cursor.fetchall()]
     
+    # Проверяем и добавляем колонку paid, если ее нет
     if 'paid' not in columns:
         try:
-            # Добавляем колонку paid со значением по умолчанию 0 (не оплачено)
             cursor.execute("ALTER TABLE trips ADD COLUMN paid INTEGER DEFAULT 0")
             conn.commit()
             logging.info("База данных обновлена: добавлена колонка 'paid' в таблицу 'trips'")
+        except sqlite3.OperationalError as e:
+            logging.error(f"Ошибка обновления структуры БД: {e}")
+    
+    # Проверяем и добавляем колонку paid_amount, если ее нет
+    if 'paid_amount' not in columns:
+        try:
+            cursor.execute("ALTER TABLE trips ADD COLUMN paid_amount REAL DEFAULT 0")
+            conn.commit()
+            logging.info("База данных обновлена: добавлена колонка 'paid_amount' в таблицу 'trips'")
         except sqlite3.OperationalError as e:
             logging.error(f"Ошибка обновления структуры БД: {e}")
     
@@ -77,10 +86,10 @@ async def view_debts(callback_query: types.CallbackQuery):
     cursor = conn.cursor()
     
     try:
-        # Получаем неоплаченные рейсы
+        # Получаем неоплаченные рейсы (полностью или частично)
         cursor.execute("""
         SELECT t.id, d.name, t.loading_city, t.unloading_city, 
-               t.distance, t.total_payment, t.created_at
+               t.distance, t.total_payment, t.paid_amount, t.created_at
         FROM trips t
         JOIN drivers d ON t.driver_id = d.id
         WHERE t.paid = 0
@@ -103,23 +112,28 @@ async def view_debts(callback_query: types.CallbackQuery):
         text = "💰 Неоплаченные рейсы:\n\n"
         
         total_debt = 0
-        for trip_id, driver_name, load_city, unload_city, distance, payment, date in unpaid_trips:
+        for trip_id, driver_name, load_city, unload_city, distance, payment, paid_amount, date in unpaid_trips:
             trip_date = date.split(' ')[0]  # Берем только дату без времени
+            remaining = payment - paid_amount
+            payment_status = f"Частично оплачено: {int(paid_amount)} ₽" if paid_amount > 0 else "Не оплачено"
+            
             text += (
                 f"🔹 Рейс #{trip_id} ({trip_date})\n"
                 f"👤 Водитель: {driver_name}\n"
                 f"🚚 Маршрут: {load_city} → {unload_city}\n"
-                f"💵 Сумма: {int(payment)} руб.\n\n"
+                f"💵 Сумма: {int(payment)} ₽ ({payment_status})\n"
+                f"💸 Осталось: {int(remaining)} ₽\n\n"
             )
-            total_debt += payment
+            total_debt += remaining
         
         # Добавляем итоговую сумму
-        text += f"Итого: {int(total_debt)} руб."
+        text += f"Итого задолженность: {int(total_debt)} ₽"
         
         # Создаем клавиатуру с действиями
         keyboard = InlineKeyboardMarkup(row_width=1)
         keyboard.add(
-            InlineKeyboardButton("✅ Отметить рейс как оплаченный", callback_data="mark_paid"),
+            InlineKeyboardButton("✅ Отметить рейс как полностью оплаченный", callback_data="mark_paid"),
+            InlineKeyboardButton("💵 Внести частичную оплату", callback_data="partial_payment"),
             InlineKeyboardButton("📋 Экспорт в CSV", callback_data="export_debts"),
             InlineKeyboardButton("◀️ Назад", callback_data="back_to_main")
         )
@@ -354,6 +368,283 @@ async def mark_trip_paid(callback_query: types.CallbackQuery):
     finally:
         conn.close()
 
+# Обработчик для выбора рейса для частичной оплаты
+@dp.callback_query_handler(lambda c: c.data == "partial_payment")
+async def select_trip_for_partial_payment(callback_query: types.CallbackQuery):
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Получаем неоплаченные рейсы
+        cursor.execute("""
+        SELECT t.id, d.name, t.loading_city, t.unloading_city, 
+               t.total_payment, t.paid_amount
+        FROM trips t
+        JOIN drivers d ON t.driver_id = d.id
+        WHERE t.paid = 0
+        ORDER BY t.created_at DESC
+        """)
+        
+        trips = cursor.fetchall()
+        
+        if not trips:
+            await bot.answer_callback_query(callback_query.id, text="Нет неоплаченных рейсов!")
+            await view_debts(callback_query)
+            conn.close()
+            return
+        
+        # Создаем клавиатуру для выбора рейса
+        keyboard = InlineKeyboardMarkup(row_width=1)
+        
+        for trip_id, driver, load, unload, payment, paid_amount in trips:
+            remaining = payment - paid_amount
+            status = f"(уже оплачено: {int(paid_amount)} ₽)" if paid_amount > 0 else ""
+            keyboard.add(InlineKeyboardButton(
+                f"#{trip_id}: {driver}, {load}-{unload}, долг: {int(remaining)} ₽ {status}",
+                callback_data=f"partial_pay_trip_{trip_id}"
+            ))
+        
+        keyboard.add(InlineKeyboardButton("◀️ Назад", callback_data="view_debts"))
+        
+        await bot.answer_callback_query(callback_query.id)
+        await bot.edit_message_text(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            text="Выберите рейс для внесения частичной оплаты:",
+            reply_markup=keyboard
+        )
+    
+    except Exception as e:
+        logging.error(f"Ошибка при выборе рейса для частичной оплаты: {str(e)}")
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(
+            callback_query.message.chat.id,
+            f"❌ Ошибка: {str(e)}"
+        )
+    
+    finally:
+        conn.close()
+
+# Обработчик для выбора рейса для частичной оплаты
+@dp.callback_query_handler(lambda c: c.data.startswith("partial_pay_trip_"))
+async def enter_partial_payment_amount(callback_query: types.CallbackQuery, state: FSMContext):
+    trip_id = int(callback_query.data.split("_")[3])
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Получаем информацию о рейсе
+        cursor.execute("""
+        SELECT t.id, d.name, t.loading_city, t.unloading_city, 
+               t.total_payment, t.paid_amount
+        FROM trips t
+        JOIN drivers d ON t.driver_id = d.id
+        WHERE t.id = ?
+        """, (trip_id,))
+        
+        trip = cursor.fetchone()
+        
+        if not trip:
+            await bot.answer_callback_query(callback_query.id, text="Рейс не найден!")
+            conn.close()
+            return
+        
+        _, driver_name, load_city, unload_city, total_payment, paid_amount = trip
+        remaining = total_payment - paid_amount
+        
+        # Сохраняем данные в состоянии
+        await state.update_data(
+            trip_id=trip_id,
+            driver_name=driver_name,
+            load_city=load_city,
+            unload_city=unload_city,
+            total_payment=total_payment,
+            paid_amount=paid_amount,
+            remaining=remaining
+        )
+        
+        await PaymentAmountStates.waiting_for_amount.set()
+        
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(
+            callback_query.message.chat.id,
+            f"Введите сумму частичной оплаты для рейса #{trip_id}:\n\n"
+            f"👤 Водитель: {driver_name}\n"
+            f"🚚 Маршрут: {load_city} → {unload_city}\n"
+            f"💵 Общая сумма: {int(total_payment)} ₽\n"
+            f"💵 Уже оплачено: {int(paid_amount)} ₽\n"
+            f"💸 Осталось оплатить: {int(remaining)} ₽\n\n"
+            f"Введите сумму (целое число):"
+        )
+    
+    except Exception as e:
+        logging.error(f"Ошибка при выборе рейса для частичной оплаты: {str(e)}")
+        await bot.send_message(
+            callback_query.message.chat.id,
+            f"❌ Ошибка: {str(e)}"
+        )
+        await state.finish()
+    
+    finally:
+        conn.close()
+
+# Обработчик ввода суммы частичной оплаты
+@dp.message_handler(state=PaymentAmountStates.waiting_for_amount)
+async def process_payment_amount(message: types.Message, state: FSMContext):
+    try:
+        amount = int(message.text.strip())
+        data = await state.get_data()
+        
+        trip_id = data['trip_id']
+        total_payment = data['total_payment']
+        paid_amount = data['paid_amount']
+        remaining = data['remaining']
+        driver_name = data['driver_name']
+        load_city = data['load_city']
+        unload_city = data['unload_city']
+        
+        if amount <= 0:
+            await message.answer("Сумма оплаты должна быть положительным числом.")
+            return
+        
+        if amount > remaining:
+            await message.answer(f"Введенная сумма ({amount} ₽) превышает оставшуюся задолженность ({int(remaining)} ₽).\n"
+                                f"Желаете отметить рейс как полностью оплаченный?",
+                                reply_markup=InlineKeyboardMarkup().add(
+                                    InlineKeyboardButton("Да", callback_data=f"confirm_full_payment_{trip_id}"),
+                                    InlineKeyboardButton("Нет", callback_data="cancel_payment")
+                                ))
+            await state.finish()
+            return
+        
+        conn = sqlite3.connect('salary_bot.db')
+        cursor = conn.cursor()
+        
+        # Обновляем сумму оплаты
+        new_paid_amount = paid_amount + amount
+        is_fully_paid = (new_paid_amount >= total_payment)
+        
+        # Если рейс полностью оплачен, отмечаем его как оплаченный
+        if is_fully_paid:
+            cursor.execute(
+                "UPDATE trips SET paid = 1, paid_amount = ? WHERE id = ?", 
+                (total_payment, trip_id)
+            )
+            status_text = "полностью оплачен"
+        else:
+            cursor.execute(
+                "UPDATE trips SET paid_amount = ? WHERE id = ?", 
+                (new_paid_amount, trip_id)
+            )
+            status_text = f"частично оплачен (внесено {int(new_paid_amount)} ₽ из {int(total_payment)} ₽)"
+        
+        # Логируем действие
+        cursor.execute(
+            "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+            (
+                message.from_user.id,
+                "Частичная оплата рейса" if not is_fully_paid else "Полная оплата рейса",
+                f"Рейс #{trip_id}: {driver_name}, {load_city}-{unload_city}, внесено {amount} ₽"
+            )
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        await message.answer(
+            f"✅ Оплата в размере {amount} ₽ внесена для рейса #{trip_id}!\n\n"
+            f"👤 Водитель: {driver_name}\n"
+            f"🚚 Маршрут: {load_city} → {unload_city}\n"
+            f"💵 Общая сумма: {int(total_payment)} ₽\n"
+            f"💵 Оплачено: {int(new_paid_amount)} ₽\n"
+            f"💸 Осталось: {int(total_payment - new_paid_amount)} ₽\n\n"
+            f"Статус рейса: {status_text}"
+        )
+        
+    except ValueError:
+        await message.answer("Некорректная сумма. Пожалуйста, введите целое число.")
+        return
+    except Exception as e:
+        logging.error(f"Ошибка при обработке частичной оплаты: {str(e)}")
+        await message.answer(f"❌ Ошибка при обработке оплаты: {str(e)}")
+    
+    finally:
+        await state.finish()
+
+# Обработчик для подтверждения полной оплаты
+@dp.callback_query_handler(lambda c: c.data.startswith("confirm_full_payment_"))
+async def confirm_full_payment(callback_query: types.CallbackQuery):
+    trip_id = int(callback_query.data.split("_")[3])
+    
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    try:
+        # Получаем информацию о рейсе
+        cursor.execute("""
+        SELECT t.id, d.name, t.loading_city, t.unloading_city, t.total_payment
+        FROM trips t
+        JOIN drivers d ON t.driver_id = d.id
+        WHERE t.id = ?
+        """, (trip_id,))
+        
+        trip = cursor.fetchone()
+        
+        if not trip:
+            await bot.answer_callback_query(callback_query.id, text="Рейс не найден!")
+            conn.close()
+            return
+        
+        trip_id, driver_name, load_city, unload_city, total_payment = trip
+        
+        # Отмечаем рейс как полностью оплаченный
+        cursor.execute(
+            "UPDATE trips SET paid = 1, paid_amount = ? WHERE id = ?", 
+            (total_payment, trip_id)
+        )
+        
+        # Логируем действие
+        cursor.execute(
+            "INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)",
+            (
+                callback_query.from_user.id,
+                "Полная оплата рейса",
+                f"Рейс #{trip_id}: {driver_name}, {load_city}-{unload_city}, {total_payment} руб."
+            )
+        )
+        
+        conn.commit()
+        
+        await bot.answer_callback_query(callback_query.id, text="✅ Рейс отмечен как полностью оплаченный!")
+        await bot.send_message(
+            callback_query.message.chat.id,
+            f"✅ Рейс #{trip_id} отмечен как полностью оплаченный!\n\n"
+            f"👤 Водитель: {driver_name}\n"
+            f"🚚 Маршрут: {load_city} → {unload_city}\n"
+            f"💵 Сумма: {int(total_payment)} ₽"
+        )
+    
+    except Exception as e:
+        logging.error(f"Ошибка при отметке рейса как оплаченного: {str(e)}")
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(
+            callback_query.message.chat.id,
+            f"❌ Ошибка при отметке рейса: {str(e)}"
+        )
+    
+    finally:
+        conn.close()
+
+# Обработчик для отмены оплаты
+@dp.callback_query_handler(lambda c: c.data == "cancel_payment")
+async def cancel_payment(callback_query: types.CallbackQuery):
+    await bot.answer_callback_query(callback_query.id)
+    await bot.send_message(
+        callback_query.message.chat.id,
+        "🚫 Оплата отменена."
+    )
+
 # Обработчик для отметки всех рейсов водителя как оплаченных
 @dp.callback_query_handler(lambda c: c.data.startswith("pay_all_driver_"))
 async def mark_all_driver_trips_paid(callback_query: types.CallbackQuery):
@@ -484,7 +775,7 @@ async def export_debts(callback_query: types.CallbackQuery):
         SELECT t.id, d.name, v.truck_number, v.trailer_number,
                t.loading_city, t.unloading_city, t.distance,
                t.side_loading_count, t.roof_loading_count,
-               t.total_payment, t.created_at
+               t.total_payment, t.paid_amount, (t.total_payment - t.paid_amount) as remaining, t.created_at
         FROM trips t
         JOIN drivers d ON t.driver_id = d.id
         JOIN vehicles v ON t.vehicle_id = v.id
@@ -511,7 +802,7 @@ async def export_debts(callback_query: types.CallbackQuery):
         writer.writerow([
             "ID", "Водитель", "Тягач", "Прицеп", "Город погрузки", 
             "Город разгрузки", "Расстояние (км)", "Боковой тент", 
-            "Крыша", "Сумма (руб)", "Дата"
+            "Крыша", "Общая сумма (руб)", "Оплачено (руб)", "Осталось (руб)", "Дата"
         ])
         
         # Данные
@@ -568,11 +859,12 @@ async def show_detailed_report(callback_query: types.CallbackQuery):
     cursor = conn.cursor()
     
     try:
-        # Получаем статистику по водителям
+        # Получаем статистику по водителям с учетом частичной оплаты
         cursor.execute("""
         SELECT d.name, 
                COUNT(CASE WHEN t.paid = 0 THEN 1 ELSE NULL END) as unpaid_trips,
-               SUM(CASE WHEN t.paid = 0 THEN t.total_payment ELSE 0 END) as unpaid_amount,
+               SUM(CASE WHEN t.paid = 0 THEN (t.total_payment - t.paid_amount) ELSE 0 END) as unpaid_amount,
+               SUM(CASE WHEN t.paid = 0 THEN t.paid_amount ELSE 0 END) as partially_paid_amount,
                COUNT(CASE WHEN t.paid = 1 THEN 1 ELSE NULL END) as paid_trips,
                SUM(CASE WHEN t.paid = 1 THEN t.total_payment ELSE 0 END) as paid_amount,
                COUNT(t.id) as total_trips,
@@ -595,10 +887,11 @@ async def show_detailed_report(callback_query: types.CallbackQuery):
             conn.close()
             return
         
-        # Получаем общую статистику
+        # Получаем общую статистику с учетом частичной оплаты
         cursor.execute("""
         SELECT COUNT(CASE WHEN paid = 0 THEN 1 ELSE NULL END) as unpaid_trips,
-               SUM(CASE WHEN paid = 0 THEN total_payment ELSE 0 END) as unpaid_amount,
+               SUM(CASE WHEN paid = 0 THEN (total_payment - paid_amount) ELSE 0 END) as unpaid_amount,
+               SUM(CASE WHEN paid = 0 THEN paid_amount ELSE 0 END) as partially_paid_amount,
                COUNT(CASE WHEN paid = 1 THEN 1 ELSE NULL END) as paid_trips,
                SUM(CASE WHEN paid = 1 THEN total_payment ELSE 0 END) as paid_amount,
                COUNT(id) as total_trips,
@@ -612,10 +905,12 @@ async def show_detailed_report(callback_query: types.CallbackQuery):
         text = "📊 Детальный отчет по рейсам:\n\n"
         
         # Общая статистика
-        unpaid_trips, unpaid_amount, paid_trips, paid_amount, total_trips, total_amount = total_stats
+        unpaid_trips, unpaid_amount, partially_paid_amount, paid_trips, paid_amount, total_trips, total_amount = total_stats
         
         if unpaid_amount is None:
             unpaid_amount = 0
+        if partially_paid_amount is None:
+            partially_paid_amount = 0
         if paid_amount is None:
             paid_amount = 0
         if total_amount is None:
@@ -624,17 +919,20 @@ async def show_detailed_report(callback_query: types.CallbackQuery):
         text += (
             "📈 Общая статистика:\n"
             f"• Всего рейсов: {total_trips}\n"
-            f"• Неоплаченных: {unpaid_trips} ({int(unpaid_amount)} руб.)\n"
-            f"• Оплаченных: {paid_trips} ({int(paid_amount)} руб.)\n"
-            f"• Общая сумма: {int(total_amount)} руб.\n\n"
+            f"• Неоплаченных: {unpaid_trips} (долг: {int(unpaid_amount)} ₽)\n"
+            f"• Частично оплачено: {int(partially_paid_amount)} ₽\n"
+            f"• Полностью оплаченных: {paid_trips} ({int(paid_amount)} ₽)\n"
+            f"• Общая сумма: {int(total_amount)} ₽\n\n"
         )
         
         # Статистика по водителям
         text += "👤 Статистика по водителям:\n\n"
         
-        for driver, unp_trips, unp_amount, p_trips, p_amount, t_trips, t_amount in driver_stats:
+        for driver, unp_trips, unp_amount, part_paid, p_trips, p_amount, t_trips, t_amount in driver_stats:
             if unp_amount is None:
                 unp_amount = 0
+            if part_paid is None:
+                part_paid = 0
             if p_amount is None:
                 p_amount = 0
             if t_amount is None:
@@ -643,9 +941,10 @@ async def show_detailed_report(callback_query: types.CallbackQuery):
             if unp_trips and unp_trips > 0:
                 text += (
                     f"🔹 {driver}:\n"
-                    f"• Неоплачено: {unp_trips} рейсов ({int(unp_amount)} руб.)\n"
-                    f"• Оплачено: {p_trips or 0} рейсов ({int(p_amount)} руб.)\n"
-                    f"• Всего: {t_trips} рейсов ({int(t_amount)} руб.)\n\n"
+                    f"• Неоплачено: {unp_trips} рейсов (долг: {int(unp_amount)} ₽)\n"
+                    f"• Частично оплачено: {int(part_paid)} ₽\n"
+                    f"• Полностью оплачено: {p_trips or 0} рейсов ({int(p_amount)} ₽)\n"
+                    f"• Всего: {t_trips} рейсов ({int(t_amount)} ₽)\n\n"
                 )
         
         # Разбиваем сообщение, если оно слишком длинное
@@ -678,6 +977,11 @@ async def show_detailed_report(callback_query: types.CallbackQuery):
 # Класс состояний для ввода ID рейса, который нужно отметить оплаченным
 class PaymentStates(StatesGroup):
     waiting_for_trip_id = State()
+
+# Класс состояний для ввода суммы оплаты
+class PaymentAmountStates(StatesGroup):
+    waiting_for_trip_id = State()
+    waiting_for_amount = State()
 
 # Обработчик для ручного ввода ID рейса для оплаты
 @dp.message_handler(lambda message: message.text == "✅ Отметить рейс оплаченным")
