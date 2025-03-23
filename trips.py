@@ -32,7 +32,6 @@ def get_trips_menu():
         types.KeyboardButton("🗂️ История рейсов")
     )
     keyboard.add(
-        types.KeyboardButton("🔍 Найти рейс"),
         types.KeyboardButton("📊 Статистика водителей")
     )
     keyboard.add(types.KeyboardButton("↩️ Назад в главное меню"))
@@ -1359,7 +1358,6 @@ def get_editor_keyboard():
         types.KeyboardButton("✏️ Редактировать рейс"),
         types.KeyboardButton("⏱️ Добавить простой"),
         types.KeyboardButton("🗂️ История рейсов"),
-        types.KeyboardButton("🔍 Найти рейс"),
         types.KeyboardButton("📊 Статистика водителей"),
         types.KeyboardButton("🚛 Управление")
     )
@@ -1608,166 +1606,6 @@ async def confirm_downtime(message: types.Message, state: FSMContext):
         conn.close()
         await state.finish()
         
-# Обработчик для поиска и просмотра конкретного рейса
-@dp.message_handler(lambda message: message.text == "🔍 Найти рейс")
-async def search_trip(message: types.Message):
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    if not await check_user_access(cursor, message.from_user.id, required_role=2):
-        await message.answer("У вас нет доступа к этой функции.")
-        conn.close()
-        return
-    
-    # Проверяем наличие рейсов
-    cursor.execute("SELECT COUNT(*) FROM trips")
-    trips_count = cursor.fetchone()[0]
-    
-    if trips_count == 0:
-        await message.answer("В базе данных нет рейсов.")
-        conn.close()
-        return
-    
-    await message.answer(
-        "Введите ID рейса или фамилию водителя для поиска:"
-    )
-    
-    conn.close()
-
-# Обработчик для поиска рейса
-@dp.message_handler(lambda message: message.text.startswith("/trip_"))
-async def view_trip_by_id(message: types.Message):
-    try:
-        trip_id = int(message.text.split("_")[1])
-    except (ValueError, IndexError):
-        await message.answer("Неверный формат ID рейса. Используйте формат /trip_123")
-        return
-    
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    # Получаем информацию о рейсе
-    cursor.execute("""
-    SELECT t.id, d.name, v.truck_number, v.trailer_number,
-           t.loading_city, t.unloading_city, t.distance,
-           t.side_loading_count, t.roof_loading_count,
-           t.total_payment, t.created_at, t.trip_1c_number
-    FROM trips t
-    JOIN drivers d ON t.driver_id = d.id
-    JOIN vehicles v ON t.vehicle_id = v.id
-    WHERE t.id = ?
-    """, (trip_id,))
-    
-    trip = cursor.fetchone()
-    
-    if not trip:
-        await message.answer(f"Рейс с ID {trip_id} не найден.")
-        conn.close()
-        return
-    
-    # Получаем информацию о простоях
-    cursor.execute("""
-    SELECT type, hours, payment
-    FROM downtimes
-    WHERE trip_id = ?
-    ORDER BY type
-    """, (trip_id,))
-    
-    downtimes = cursor.fetchall()
-    
-    # Формируем текст сообщения
-    trip_id, driver, truck, trailer, load_city, unload_city, distance, side_loading, roof_loading, payment, date, trip_1c_number = trip
-    
-    text = (
-        f"📋 Информация о рейсе #{trip_id}\n\n"
-        f"📅 Дата: {date.split(' ')[0]}\n"
-        f"👤 Водитель: {driver}\n"
-        f"🚛 Автопоезд: {truck} / {trailer}\n"
-        f"📝 Номер рейса из 1С: {trip_1c_number or 'Не указан'}\n"
-        f"🗺️ Маршрут: {load_city} → {unload_city}\n"
-        f"📏 Расстояние: {distance} км\n"
-        f"🔄 Загрузки: {side_loading} боковых, {roof_loading} через крышу\n"
-    )
-    
-    if downtimes:
-        text += "\n⏱️ Простои:\n"
-        for dtype, hours, dpayment in downtimes:
-            downtime_type = "Регулярный" if dtype == 1 else "Вынужденный"
-            text += f"  • {downtime_type}: {hours} ч. ({dpayment} руб.)\n"
-    
-    text += f"\n💰 Итоговая оплата: {payment} руб."
-    
-    await message.answer(text)
-    conn.close()
-
-# Обработчик поиска по тексту
-@dp.message_handler(lambda message: message.text not in ["➕ Добавить рейс", "✏️ Редактировать рейс", "🗂️ История рейсов", "⏱️ Добавить простой", "🔍 Найти рейс", "🚛 Управление", "📊 Статистика водителей"])
-async def search_trips(message: types.Message):
-    search_text = message.text.strip().lower()
-    
-    if not search_text:
-        return
-    
-    # Проверяем, является ли ввод числом (ID рейса)
-    try:
-        trip_id = int(search_text)
-        # Если да, делаем поиск по ID
-        await view_trip_by_id(types.Message(text=f"/trip_{trip_id}", from_user=message.from_user, chat=message.chat))
-        return
-    except ValueError:
-        pass
-    
-    conn = sqlite3.connect('salary_bot.db')
-    cursor = conn.cursor()
-    
-    # Поиск по имени водителя, городам, номерам ТС и номеру из 1С
-    cursor.execute("""
-    SELECT t.id, d.name, t.loading_city, t.unloading_city, t.created_at, t.trip_1c_number
-    FROM trips t
-    JOIN drivers d ON t.driver_id = d.id
-    JOIN vehicles v ON t.vehicle_id = v.id
-    WHERE 
-        LOWER(d.name) LIKE ? OR
-        LOWER(t.loading_city) LIKE ? OR
-        LOWER(t.unloading_city) LIKE ? OR
-        LOWER(v.truck_number) LIKE ? OR
-        LOWER(v.trailer_number) LIKE ? OR
-        LOWER(t.trip_1c_number) LIKE ?
-    ORDER BY t.created_at DESC
-    LIMIT 10
-    """, (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%"))
-    
-    trips = cursor.fetchall()
-    
-    if not trips:
-        await message.answer(f"По запросу '{search_text}' ничего не найдено.")
-        conn.close()
-        return
-    
-    # Создаем клавиатуру с результатами поиска
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    
-    for trip_id, driver, loading, unloading, date, trip_1c_number in trips:
-        date_short = date.split(" ")[0]
-        trip_1c_info = f", 1С:{trip_1c_number}" if trip_1c_number else ""
-        btn_text = f"#{trip_id}: {driver}, {loading}-{unloading}{trip_1c_info} ({date_short})"
-        keyboard.add(InlineKeyboardButton(btn_text, callback_data=f"view_trip_{trip_id}"))
-    
-    await message.answer(
-        f"Найдено {len(trips)} рейсов по запросу '{search_text}'.\nВыберите рейс для просмотра:",
-        reply_markup=keyboard
-    )
-    
-    conn.close()
-
-# Обработчик выбора рейса из результатов поиска
-@dp.callback_query_handler(lambda c: c.data.startswith('view_trip_'))
-async def process_trip_selection(callback_query: types.CallbackQuery):
-    trip_id = int(callback_query.data.split('_')[2])
-    
-    await bot.answer_callback_query(callback_query.id)
-    await view_trip_by_id(types.Message(text=f"/trip_{trip_id}", from_user=callback_query.from_user, chat=callback_query.message.chat))
-
 # Обработчик для статистики водителей
 @dp.message_handler(lambda message: message.text == "📊 Статистика водителей")
 async def driver_statistics(message: types.Message):
