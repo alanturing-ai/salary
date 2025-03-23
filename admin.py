@@ -90,3 +90,16 @@ async def process_role(message: types.Message, state: FSMContext):
     
     # Проверяем существует ли пользователь
     cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+
+# Обработчик кнопки "Управление пользователями"
+@dp.message_handler(lambda message: message.text == "👥 Управление пользователями")
+async def manage_users(message: types.Message):
+    conn = sqlite3.connect('salary_bot.db')
+    cursor = conn.cursor()
+    
+    if await check_user_access(cursor, message.from_user.id, required_role=0):
+        await message.answer("Панель администратора", reply_markup=get_admin_keyboard())
+    else:
+        await message.answer("У вас нет доступа к этой команде.")
+    
+    conn.close()
