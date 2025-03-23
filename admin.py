@@ -11,20 +11,6 @@ class AdminStates(StatesGroup):
     waiting_for_role = State()
     waiting_for_delete_confirmation = State()
 
-# Глобальный обработчик для сброса состояний
-@dp.message_handler(lambda message: True, state="*")
-async def global_state_reset(message: types.Message, state: FSMContext):
-    # Получаем текущее состояние
-    current_state = await state.get_state()
-    
-    # Если сообщение содержит команду смены режима и активно какое-то состояние
-    if message.text in ["👥 Управление пользователями", "🔑 Назначить роль", 
-                        "🗑️ Удалить роль", "📋 Список пользователей", 
-                        "◀️ Назад"]:
-        # Сбрасываем состояние
-        await state.finish()
-        return
-
 # Клавиатура админа
 def get_admin_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
