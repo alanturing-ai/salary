@@ -782,12 +782,33 @@ async def edit_trip(message: types.Message):
         conn.close()
         return
     
+    # Добавляем клавиатуру с кнопкой отмены
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton("↩️ Назад в меню рейсов", callback_data="cancel_edit"))
+    
     await message.answer(
-        "Введите ID рейса для редактирования:"
+        "Введите ID рейса для редактирования:",
+        reply_markup=keyboard
     )
     
     await EditTripStates.waiting_for_trip_id.set()
     conn.close()
+
+# Обработчик для кнопки отмены редактирования
+@dp.callback_query_handler(lambda c: c.data == "cancel_edit", state=EditTripStates.waiting_for_trip_id)
+async def cancel_edit(callback_query: types.CallbackQuery, state: FSMContext):
+    await state.finish()
+    await bot.edit_message_text(
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id,
+        text="Редактирование отменено.",
+        reply_markup=None
+    )
+    await bot.send_message(
+        callback_query.message.chat.id,
+        "Меню работы с рейсами:",
+        reply_markup=get_trips_menu()
+    )
 
 # Обработчик ввода ID рейса для редактирования
 @dp.message_handler(state=EditTripStates.waiting_for_trip_id)
@@ -1364,11 +1385,34 @@ async def add_downtime(message: types.Message):
         conn.close()
         return
     
-    await message.answer("Введите ID рейса для добавления простоя:")
-    await DowntimeStates.waiting_for_trip_id.set()
+    # Добавляем клавиатуру с кнопкой отмены
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton("↩️ Назад в меню рейсов", callback_data="cancel_downtime"))
     
+    await message.answer(
+        "Введите ID рейса для добавления простоя:",
+        reply_markup=keyboard
+    )
+    
+    await DowntimeStates.waiting_for_trip_id.set()
     conn.close()
 
+# Обработчик для кнопки отмены добавления простоя
+@dp.callback_query_handler(lambda c: c.data == "cancel_downtime", state=DowntimeStates.waiting_for_trip_id)
+async def cancel_downtime(callback_query: types.CallbackQuery, state: FSMContext):
+    await state.finish()
+    await bot.edit_message_text(
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id,
+        text="Добавление простоя отменено.",
+        reply_markup=None
+    )
+    await bot.send_message(
+        callback_query.message.chat.id,
+        "Меню работы с рейсами:",
+        reply_markup=get_trips_menu()
+    )
+    
 # Обработчик ввода ID рейса для простоя
 @dp.message_handler(state=DowntimeStates.waiting_for_trip_id)
 async def process_trip_id_for_downtime(message: types.Message, state: FSMContext):
