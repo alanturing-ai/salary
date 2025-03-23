@@ -1543,7 +1543,7 @@ async def confirm_downtime(message: types.Message, state: FSMContext):
         
         conn.commit()
         
-        await message.answer(
+       await message.answer(
             f"✅ Простой успешно добавлен!\n"
             f"Рейс #{data['trip_id']}\n"
             f"Тип: {data['downtime_name']}\n"
@@ -1562,7 +1562,7 @@ async def confirm_downtime(message: types.Message, state: FSMContext):
     finally:
         conn.close()
         await state.finish()
-
+        
 # Обработчик для поиска и просмотра конкретного рейса
 @dp.message_handler(lambda message: message.text == "🔍 Найти рейс")
 async def search_trip(message: types.Message):
