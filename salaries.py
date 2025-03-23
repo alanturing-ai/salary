@@ -66,8 +66,8 @@ async def show_current_data(message: types.Message):
     cursor.execute("SELECT COUNT(*) FROM trips WHERE paid = 0")
     unpaid_count = cursor.fetchone()[0]
     
-    # Получаем общую сумму задолженности
-    cursor.execute("SELECT SUM(total_payment) FROM trips WHERE paid = 0")
+    # Получаем общую сумму задолженности с учетом частичной оплаты
+    cursor.execute("SELECT SUM(total_payment - paid_amount) FROM trips WHERE paid = 0")
     total_debt = cursor.fetchone()[0] or 0
     
     # Создаем клавиатуру для отображения задолженностей
@@ -82,7 +82,7 @@ async def show_current_data(message: types.Message):
     await message.answer(
         "📊 Выберите отчет для просмотра:\n\n"
         f"Всего неоплаченных рейсов: {unpaid_count}\n"
-        f"Общая сумма задолженности: {int(total_debt)} руб.",
+        f"Общая сумма задолженности: {int(total_debt)} ₽",
         reply_markup=keyboard
     )
     
@@ -176,7 +176,7 @@ async def view_debts_by_driver(callback_query: types.CallbackQuery):
         # Получаем задолженности по водителям
         cursor.execute("""
         SELECT d.id, d.name, COUNT(t.id) as trips_count, 
-               SUM(t.total_payment) as total_debt
+               SUM(t.total_payment - t.paid_amount) as total_debt
         FROM drivers d
         LEFT JOIN trips t ON d.id = t.driver_id AND t.paid = 0
         GROUP BY d.id
